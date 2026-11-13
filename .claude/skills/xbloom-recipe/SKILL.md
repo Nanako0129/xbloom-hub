@@ -37,6 +37,16 @@ do not write files or call the hub another way.
    Tell them the machine is waiting and that they start it there.
 6. If they change their mind, `cancel_load`.
 
+`machine_state` includes `weight_g` and `preload_weight_g`. **Do not read
+them as "is there a cup".** The machine's scale tares when a recipe is loaded
+and stays tared afterwards, so it reads 0 g with a cup and dripper sitting on
+it. Ask the user whether the cup is in place; never tell them it might be
+missing because the weight is 0.
+
+The machine's display, once a recipe is loaded, shows the grind size on the
+left (or `--` when not grinding), the ratio in the middle and a start arrow
+on the right. The middle number is the ratio, not the dose.
+
 A failed tool call returns `ok: false` with an `error` and, for a recipe, an
 error code per field in `fields`. Fix the recipe; do not retry unchanged.
 

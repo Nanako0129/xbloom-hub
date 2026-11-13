@@ -12,7 +12,7 @@ aioesphomeapi 46.30.0, habluetooth 7.1.2, bleak-retry-connector 4.7.1.
 | | Criterion | Result |
 |---|---|---|
 | a | Firmware string and idle state through the proxy | `V12.0D.500`, activity `1`, mode `pro` |
-| b | Recipe prompt seen on the machine, then back at home | Seen (grinder `--`, dose `5`, start `▶`); exit was the machine's own sleep; next session reported activity `1` |
+| b | Recipe prompt seen on the machine, then back at home | Seen (grinder `--`, `5`, start `▶`; the middle number is the ratio, which equalled the dose in this recipe, as S2 showed); exit was the machine's own sleep; next session reported activity `1` |
 | c | Gate log: 8100, then 8102, 8104, 8004, nothing else | Exactly that. Each load step was echoed once by the machine |
 | d | 10-minute idle hold | No disconnect. 20 windows of 30 s, 281–286 notifications each (last window partial) |
 | e | Notes | Below |
