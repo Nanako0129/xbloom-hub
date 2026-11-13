@@ -193,6 +193,8 @@ Assistant; cloud; lock-screen scanning on the phone.
 
 ## S2 — Claude Code
 
+Done 2026-11-14: [S2-RESULTS.md](S2-RESULTS.md).
+
 Written after S1; see [S1-RESULTS.md](S1-RESULTS.md) and
 [OFFICIAL-APP-NOTES.md](OFFICIAL-APP-NOTES.md).
 
