@@ -11,3 +11,6 @@ dist/
 .env.*
 !.env.example
 data/
+
+# secrets for a local run: the hub token and the proxy key
+secrets/

@@ -19,9 +19,10 @@ from xbloom.ble import CommandRefused, CommandUnanswered
 
 from .gate import GateRefused
 from .machine import CancelFailed, Machine, NotReady
-from .recipes import BadSlug, RecipeInvalid, RecipeStore, checked
+from .recipes import BadSlug, RecipeInvalid, RecipeStore, to_machine
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
+MCP_PATH = "/mcp"
 
 
 def read_token(env: Mapping[str, str]) -> str:
@@ -61,7 +62,10 @@ class Guard:
         origin = headers.get("origin")
         if origin is not None and urlsplit(origin).netloc != headers.get("host"):
             return await JSONResponse({"error": "foreign_origin"}, 403)(scope, receive, send)
-        if scope["method"] not in ("GET", "HEAD"):
+        # Reads are open; anything that can change something needs the token.
+        # Every MCP request needs it whatever its method: its GET is a stream
+        # of tool traffic, not a read of public state.
+        if scope["method"] not in ("GET", "HEAD") or scope["path"].startswith(MCP_PATH):
             scheme, _, presented = headers.get("authorization", "").partition(" ")
             if (scheme != "Bearer" or not presented
                     or not hmac.compare_digest(presented.encode(), self._token)):
@@ -111,7 +115,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         recipe = store.get(slug)
         if recipe is None:
             return JSONResponse({"error": "not_found"}, 404)
-        return JSONResponse(await machine.load(slug, checked(recipe)))
+        return JSONResponse(await machine.load(slug, to_machine(recipe)))
 
     async def cancel(request):
         return JSONResponse(await machine.cancel())
@@ -141,11 +145,29 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             return JSONResponse(body, status)
         return handler
 
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    from .mcp_tools import build_server
+
+    mcp_server = build_server(machine, store)
+    # Stateless JSON responses: one request, one answer, nothing to resume.
+    # The SDK's own Host check is tied to a host it is told it binds to; this
+    # app is the one that binds, and TrustedHostMiddleware plus Guard below
+    # already sit in front of this route, so the SDK's check is turned off
+    # rather than left guessing.
+    mcp_app = mcp_server.streamable_http_app(
+        streamable_http_path=MCP_PATH, json_response=True, stateless_http=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
     @contextlib.asynccontextmanager
     async def lifespan(app):
         task = asyncio.create_task(machine.run())
         try:
-            yield
+            # A mounted or borrowed MCP route does not run the SDK app's own
+            # lifespan, so its session manager is entered here.
+            async with mcp_server.session_manager.run():
+                yield
         finally:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -163,6 +185,9 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/machine/cancel", cancel, methods=["POST"]),
             Route("/api/link/release", release, methods=["POST"]),
             Route("/api/link/acquire", acquire, methods=["POST"]),
+            # The SDK's route itself, at /mcp, rather than a Mount (which
+            # would answer at /mcp/ and redirect /mcp).
+            *mcp_app.routes,
         ],
         middleware=[
             # Refuses a Host header that is not ours: DNS-rebinding protection.

@@ -10,17 +10,19 @@ from xbloom.ble import FFE1_UUID
 from xbloom_hub import gate
 from xbloom_hub.app import create_app, read_token
 from xbloom_hub.machine import Machine, NotReady
-from xbloom_hub.recipes import BadSlug, RecipeInvalid, RecipeStore
+from xbloom_hub.recipes import BadSlug, RecipeInvalid, RecipeStore, checked, to_machine
 from xbloom_hub.sim import SimListener, SimRadio, _SimClient
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-RECIPE = {
+RECIPE = {      # the hub's one recipe shape; grinder off, 25 ml of unheated water
     "name": "Test", "cup_type": 2, "dose_g": 5.0, "ratio": "1:5",
-    "grinder_size": 40, "grinder_size_enabled": 2, "rpm": 60, "pour_count": 1,
+    "grind": False, "grind_size": 40, "grinder_speed_rpm": 60,
     "pours": [{"volume_ml": 25, "temperature_c": 20, "pause_s": 0, "pattern": 1,
                "flow_rate": 3.0, "agitate_before": 2, "agitate_after": 2}],
 }
+WIRE = to_machine(checked(RECIPE))      # what Machine.load() is given
+MCP_HEADERS = {"Accept": "application/json, text/event-stream"}
 
 
 def frame(code: int) -> bytes:
@@ -81,7 +83,7 @@ def test_ungated_session_is_never_usable():
         assert machine.state == "offline"
         assert machine.snapshot()["error"] == "gate_missing"
         with pytest.raises(NotReady):
-            await machine.load("x", RECIPE)
+            await machine.load("x", WIRE)
         task.cancel()
 
     asyncio.run(run())
@@ -95,13 +97,13 @@ def test_load_cancel_release_acquire_on_simulator():
         with pytest.raises(NotReady):
             await machine.cancel()                       # cancel only while armed
 
-        loaded = await machine.load("test", RECIPE)
+        loaded = await machine.load("test", WIRE)
         assert loaded["state"] == "armed" and loaded["ticket"]
         assert loaded["preload_weight_g"] == 132.4      # read before the tare
         assert "ticket" not in machine.snapshot()
         assert machine._listener._client.gate_log == [8100, 8102, 8104, 8004]
         with pytest.raises(NotReady):
-            await machine.load("test", RECIPE)           # no load on top of a load
+            await machine.load("test", WIRE)           # no load on top of a load
 
         assert (await machine.cancel())["state"] == "idle"
         assert machine._ticket is None and machine.snapshot()["recipe"] is None
@@ -156,7 +158,7 @@ def test_link_drop_during_load_issues_no_ticket():
         task = asyncio.create_task(machine.run())
         assert await machine._wait_for(lambda: machine.state == "idle", 2)
         with pytest.raises(NotReady):
-            await machine.load("test", RECIPE)
+            await machine.load("test", WIRE)
         assert machine._ticket is None and machine._recipe is None
         task.cancel()
 
@@ -225,6 +227,7 @@ def client(tmp_path):
     machine = Machine(SimRadio(), SimListener)
     app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
     with TestClient(app) as c:
+        c.machine = machine
         deadline = time.monotonic() + 3
         while c.get("/api/state").json()["state"] != "idle":
             assert time.monotonic() < deadline
@@ -261,3 +264,115 @@ def test_recipe_and_load_flow_over_http(client):
     assert client.post("/api/machine/load", json={"slug": "test"}, headers=AUTH).status_code == 409
     assert client.post("/api/machine/cancel", headers=AUTH).json()["state"] == "idle"
     assert client.delete("/api/recipes/test", headers=AUTH).json() == {"deleted": True}
+
+
+# ---- one recipe shape (safety invariant 4) -------------------------------- #
+def test_only_the_hub_shape_is_accepted():
+    for key, value in (("grinder_size", 40), ("rpm", 250), ("grinder_size_enabled", 1),
+                       ("pour_count", 1), ("bypass_volume_ml", 30), ("anything", "x")):
+        with pytest.raises(RecipeInvalid) as err:
+            checked({**RECIPE, key: value})
+        assert err.value.errors == {key: "unknown_field"}
+    with pytest.raises(RecipeInvalid) as err:
+        checked({**RECIPE, "pours": [{**RECIPE["pours"][0], "rpm": 250}]})
+    assert err.value.errors == {"pours.0.rpm": "unknown_field"}
+    for bad in ({"grind": "yes"}, {"grind": 1},
+                {"pours": [{**RECIPE["pours"][0], "agitate_before": 3}]},
+                {"pours": [{**RECIPE["pours"][0], "agitate_after": True}]},
+                {"grinder_speed_rpm": 95}, {"grind_size": 81}, {"ratio": 5}):
+        with pytest.raises(RecipeInvalid):
+            checked({**RECIPE, **bad})
+
+
+def test_the_encoder_gets_exactly_the_validated_values():
+    from xbloom.ble import build_brew_frames, frame_command_code
+
+    on = checked({**RECIPE, "grind": True, "grind_size": 62, "grinder_speed_rpm": 90})
+    wire = to_machine(on)
+    assert (wire["grinder_size"], wire["rpm"], wire["grinder_size_enabled"]) == (62, 90, 1)
+    assert set(wire) == {"name", "cup_type", "dose_g", "grinder_size",
+                         "grinder_size_enabled", "rpm", "pours"}
+    assert [frame_command_code(f) for f in build_brew_frames(wire)[1:4]] == [8102, 8104, 8001]
+    off = to_machine(checked(RECIPE))
+    assert off["grinder_size_enabled"] == 2
+    assert [frame_command_code(f) for f in build_brew_frames(off)[1:4]] == [8102, 8104, 8004]
+
+
+def test_recipe_text_is_cleaned_and_bounded(tmp_path):
+    ok = checked({**RECIPE, "name": "  Guji\x00\x1b[31m natural\n ",
+                  "meta": {"bean": "Guji\x07", "notes": "n" * 500}})
+    assert ok["name"] == "Guji[31m natural" and ok["meta"]["bean"] == "Guji"
+    assert "meta" not in to_machine(ok)
+    for bad in ({"name": "n" * 81}, {"meta": {"notes": "n" * 501}}, {"meta": {"other": "x"}},
+                {"meta": {"bean": 5}}, {"meta": "text"}):
+        with pytest.raises(RecipeInvalid):
+            checked({**RECIPE, **bad})
+    (tmp_path / "hand.yaml").write_text("name: \"evil\\x1b[2J\"\n")
+    assert RecipeStore(tmp_path).list() == [{"slug": "hand", "name": "evil[2J"}]
+
+
+def test_old_shape_file_is_refused_on_load(client, tmp_path):
+    (tmp_path / "old.yaml").write_text(
+        "name: Old\ncup_type: 2\ndose_g: 5.0\nratio: '1:5'\ngrinder_size: 40\n"
+        "grinder_size_enabled: 2\nrpm: 60\npour_count: 1\npours:\n- {volume_ml: 25, "
+        "temperature_c: 20, pause_s: 0, pattern: 1, flow_rate: 3.0}\n")
+    refused = client.post("/api/machine/load", json={"slug": "old"}, headers=AUTH)
+    assert refused.status_code == 422 and "grinder_size" in refused.json()["fields"]
+    assert client.get("/api/state").json()["state"] == "idle"
+
+
+# ---- mcp ------------------------------------------------------------------ #
+def rpc(client, method, params=None, headers=AUTH):
+    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+    return client.post("/mcp", json=body, headers={**MCP_HEADERS, **headers})
+
+
+def call(client, tool, **arguments):
+    reply = rpc(client, "tools/call", {"name": tool, "arguments": arguments})
+    assert reply.status_code == 200, reply.text
+    result = reply.json()["result"]
+    assert not result.get("isError"), result
+    if "structuredContent" in result:
+        return result["structuredContent"]
+    import json
+    return json.loads(result["content"][0]["text"])
+
+
+def test_mcp_needs_the_token_on_every_method(client):
+    assert rpc(client, "tools/list", headers={}).status_code == 401
+    assert client.get("/mcp", headers=MCP_HEADERS).status_code == 401
+    assert client.delete("/mcp").status_code == 401
+    assert rpc(client, "tools/list", headers={**AUTH, "Host": "evil.example"}).status_code == 400
+    assert rpc(client, "tools/list", headers={**AUTH, "Origin": "http://evil.example"}).status_code == 403
+    assert rpc(client, "tools/list").status_code == 200
+
+
+def test_mcp_offers_exactly_these_tools(client):
+    tools = rpc(client, "tools/list").json()["result"]["tools"]
+    assert {t["name"] for t in tools} == {
+        "list_recipes", "get_recipe", "validate_recipe", "save_recipe", "delete_recipe",
+        "machine_state", "load_recipe", "cancel_load"}
+
+
+def test_mcp_design_save_load_cancel(client):
+    hot = {**RECIPE, "name": "Guji", "grind": True, "grind_size": 62, "grinder_speed_rpm": 90,
+           "meta": {"bean": "Guji natural"}}
+    bad = call(client, "save_recipe", slug="guji", recipe={**hot, "grind_size": 120})
+    assert bad == {"ok": False, "error": "recipe_invalid", "fields": {"grind_size": "grind_out_of_range"}}
+    assert call(client, "validate_recipe", recipe={**hot, "rpm": 90})["fields"] == {"rpm": "unknown_field"}
+    assert call(client, "list_recipes")["recipes"] == []            # nothing was stored
+    assert call(client, "save_recipe", slug="Bad Slug", recipe=hot)["error"] == "bad_slug"
+
+    assert call(client, "save_recipe", slug="guji", recipe=hot)["ok"]
+    assert call(client, "get_recipe", slug="guji")["recipe"]["meta"] == {"bean": "Guji natural"}
+    assert call(client, "cancel_load")["error"] == "not_ready"       # nothing loaded yet
+    assert call(client, "load_recipe", slug="nope")["error"] == "not_found"
+
+    loaded = call(client, "load_recipe", slug="guji")
+    assert loaded["state"] == "armed" and loaded["recipe"]["slug"] == "guji"
+    assert "ticket" not in str(loaded) and "ticket" not in str(call(client, "machine_state"))
+    assert call(client, "load_recipe", slug="guji")["error"] == "not_ready"
+    assert client.machine._listener._client.gate_log == [8100, 8102, 8104, 8001]   # grinder on
+    assert call(client, "cancel_load")["state"] == "idle"
+    assert client.machine._listener._client.gate_log[-1] == 8017
+    assert call(client, "delete_recipe", slug="guji") == {"ok": True, "deleted": True}
