@@ -5,4 +5,9 @@
 set -eu
 file="${XBLOOM_HUB_TOKEN_FILE:-secrets/hub_token}"
 [ -s "$file" ] || { echo "xbloom-hub: no token in $file" >&2; exit 1; }
-exec python3 -c 'import json, sys; print(json.dumps({"Authorization": "Bearer " + open(sys.argv[1]).read().strip()}))' "$file"
+exec python3 -c '
+import json, sys
+token = open(sys.argv[1]).read().strip()
+if not token:
+    sys.exit("xbloom-hub: the token file holds only whitespace")
+print(json.dumps({"Authorization": "Bearer " + token}))' "$file"

@@ -10,7 +10,7 @@ from xbloom.ble import FFE1_UUID
 from xbloom_hub import gate
 from xbloom_hub.app import create_app, read_token
 from xbloom_hub.machine import Machine, NotReady
-from xbloom_hub.recipes import BadSlug, RecipeInvalid, RecipeStore, checked, to_machine
+from xbloom_hub.recipes import BadSlug, RecipeInvalid, RecipeStore, as_sent, checked, to_machine
 from xbloom_hub.sim import SimListener, SimRadio, _SimClient
 
 TOKEN = "test-token"
@@ -183,8 +183,9 @@ def test_file_that_is_not_a_recipe_is_refused_not_fatal(tmp_path):
     store = RecipeStore(tmp_path)
     (tmp_path / "list.yaml").write_text("- 1\n- 2\n")
     (tmp_path / "broken.yaml").write_text("a: [1\n")
-    assert {r["slug"] for r in store.list()} == {"list", "broken"}
-    for slug in ("list", "broken"):
+    (tmp_path / "binary.yaml").write_bytes(b"\xff\xfe\x00name")
+    assert {r["slug"] for r in store.list()} == {"list", "broken", "binary"}
+    for slug in ("list", "broken", "binary"):
         with pytest.raises(RecipeInvalid):
             store.get(slug)
 
@@ -376,3 +377,63 @@ def test_mcp_design_save_load_cancel(client):
     assert call(client, "cancel_load")["state"] == "idle"
     assert client.machine._listener._client.gate_log[-1] == 8017
     assert call(client, "delete_recipe", slug="guji") == {"ok": True, "deleted": True}
+
+
+# ---- what is validated is what is sent ------------------------------------ #
+def test_fractions_the_encoder_would_change_are_refused():
+    pour = RECIPE["pours"][0]
+    for bad, field in (({"dose_g": 6.5}, "dose_g"), ({"grind_size": 40.9}, "grind_size"),
+                       ({"cup_type": True}, "cup_type"),
+                       ({"pours": [{**pour, "temperature_c": 92.9}]}, "pours.0.temperature_c"),
+                       ({"pours": [{**pour, "volume_ml": 24.6}]}, "pours.0.volume_ml"),
+                       ({"pours": [{**pour, "pattern": True}]}, "pours.0.pattern"),
+                       ({"pours": [{**pour, "flow_rate": 3.25}]}, "pours.0.flow_rate"),
+                       ({"name": None}, "name"), ({"name": ["x"]}, "name")):
+        with pytest.raises(RecipeInvalid) as err:
+            checked({**RECIPE, **bad})
+        assert field in err.value.errors, (bad, err.value.errors)
+    ok = checked({**RECIPE, "dose_g": 5.0, "cup_type": 2.0,
+                  "pours": [{**pour, "volume_ml": 25.0, "flow_rate": 3}]})
+    assert (ok["dose_g"], ok["cup_type"], ok["pours"][0]["volume_ml"]) == (5, 2, 25)
+    assert all(type(v) is int for v in (ok["dose_g"], ok["cup_type"], ok["pours"][0]["volume_ml"]))
+    assert checked({**RECIPE, "name": "a\u202eb\u2028c\x9fd"})["name"] == "abcd"
+
+
+def test_as_sent_stays_close_for_every_dose_and_ratio():
+    from xbloom.ble import build_brew_frames
+    from xbloom.spec import CUP_DOSE
+
+    worst = 0.0
+    for cup in (2, 3):
+        for dose in range(int(CUP_DOSE[cup].min), int(CUP_DOSE[cup].max) + 1):
+            for half in range(10, 51):                      # 1:5 .. 1:25 in 0.5 steps
+                n = half / 2
+                total = int(dose * n)                       # whole ml, within 0.5 of dose x n
+                first = min(total // 2, 240)
+                rest, pours = total - first, [first]
+                while rest > 0:
+                    pours.append(min(rest, 240))
+                    rest -= pours[-1]
+                recipe = checked({**RECIPE, "cup_type": cup, "dose_g": dose, "ratio": f"1:{n:g}",
+                                  "pours": [{**RECIPE["pours"][0], "volume_ml": v} for v in pours]})
+                sent = as_sent(recipe)
+                assert sent["dose_g"] == dose
+                # The encoder may move the ratio by a tenth or two to satisfy
+                # the firmware; a clamped ratio byte would be far off.
+                assert abs(float(sent["ratio"][2:]) - n) < 0.31, (cup, dose, n, sent)
+                worst = max(worst, abs(sent["total_ml"] - total))
+                build_brew_frames(to_machine(recipe))       # and it encodes
+    assert worst <= 3, worst
+    print("largest shift in total water:", worst, "ml")
+
+
+def test_token_helper_fails_closed_on_whitespace(tmp_path):
+    import subprocess
+
+    token = tmp_path / "t"
+    for content, ok in (("   \n", False), ("", False), ("abc\n", True)):
+        token.write_text(content)
+        run = subprocess.run(["tools/mcp-auth-headers.sh"], capture_output=True, text=True,
+                             env={"XBLOOM_HUB_TOKEN_FILE": str(token), "PATH": "/usr/bin:/bin"})
+        assert (run.returncode == 0) == ok, (content, run.stderr)
+    assert run.stdout.strip() == '{"Authorization": "Bearer abc"}'

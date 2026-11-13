@@ -13,13 +13,13 @@ bad values instead of refusing them.
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 import yaml
 from xbloom import recipe_validate
 
 _SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 TOP_KEYS = frozenset({"name", "cup_type", "dose_g", "ratio", "grind_size",
                       "grinder_speed_rpm", "grind", "pours", "meta"})
@@ -40,9 +40,40 @@ class RecipeInvalid(ValueError):
         self.errors = errors
 
 
-def clean_text(value: object) -> str:
-    """Free text is shown to people and to an assistant: no control characters."""
-    return _CONTROL.sub("", str(value)).strip()
+def clean_text(value: str) -> str:
+    """Free text is shown to people and to an assistant. Drop everything that
+    is not a visible character or a plain space: control characters, bidi
+    overrides and other format characters, line and paragraph separators."""
+    return "".join(ch for ch in value
+                   if unicodedata.category(ch)[0] != "C"
+                   and unicodedata.category(ch) not in ("Zl", "Zp")).strip()
+
+
+def _whole(value: object) -> int | None:
+    """The integer a value stands for, or None. The encoder truncates or
+    rounds fractions, so a fraction would be sent as something else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _whole_fields(source: dict, keys: tuple[str, ...], prefix: str, errors: dict) -> dict:
+    """Copy `keys` from `source`, turning whole numbers into ints. A value
+    that is absent or None is left for the library's own check to report."""
+    out = {}
+    for key in keys:
+        value = source.get(key)
+        if value is None:
+            continue
+        whole = _whole(value)
+        if whole is None:
+            errors[prefix + key] = "must_be_whole_number"
+        out[key] = value if whole is None else whole
+    return out
 
 
 def checked(recipe: object) -> dict:
@@ -55,9 +86,17 @@ def checked(recipe: object) -> dict:
         if key not in TOP_KEYS:
             errors[str(key)] = "unknown_field"
 
-    name = clean_text(recipe.get("name", ""))
+    name = recipe.get("name", "")
+    if not isinstance(name, str):
+        errors["name"] = "must_be_text"
+        name = ""
+    name = clean_text(name)
     if len(name) > NAME_MAX:
         errors["name"] = "name_too_long"
+
+    # The machine is sent whole grams, whole millilitres and whole degrees.
+    top = _whole_fields(recipe, ("cup_type", "dose_g", "grind_size", "grinder_speed_rpm"),
+                        "", errors)
 
     grind = recipe.get("grind", True)
     if not isinstance(grind, bool):
@@ -74,10 +113,19 @@ def checked(recipe: object) -> dict:
                 if key not in POUR_KEYS:
                     errors[f"pours.{i}.{key}"] = "unknown_field"
             item = {key: pour[key] for key in POUR_KEYS if key in pour}
+            item.update(_whole_fields(
+                pour, ("volume_ml", "temperature_c", "pattern", "agitate_before",
+                       "agitate_after"), f"pours.{i}.", errors))
+            flow = item.get("flow_rate")
+            if isinstance(flow, (int, float)) and not isinstance(flow, bool):
+                if abs(flow * 10 - round(flow * 10)) > 1e-9:
+                    errors[f"pours.{i}.flow_rate"] = "must_be_a_step_of_0.1"
+                else:
+                    item["flow_rate"] = round(float(flow), 1)
             for key in ("agitate_before", "agitate_after"):
                 item.setdefault(key, 2)                      # 1 = on, 2 = off
-                if isinstance(item[key], bool) or item[key] not in (1, 2):
-                    errors[f"pours.{i}.{key}"] = "must_be_1_or_2"
+                if item[key] not in (1, 2):
+                    errors.setdefault(f"pours.{i}.{key}", "must_be_1_or_2")
             pours.append(item)
 
     meta_in = recipe.get("meta")
@@ -98,11 +146,11 @@ def checked(recipe: object) -> dict:
 
     library = recipe_validate.normalize_recipe({
         "name": name,
-        "cup_type": recipe.get("cup_type"),
-        "dose_g": recipe.get("dose_g"),
+        "cup_type": top.get("cup_type"),
+        "dose_g": top.get("dose_g"),
         "ratio": recipe.get("ratio"),
-        "grind_size": recipe.get("grind_size"),
-        "grinder_speed_rpm": recipe.get("grinder_speed_rpm"),
+        "grind_size": top.get("grind_size"),
+        "grinder_speed_rpm": top.get("grinder_speed_rpm"),
         "pour_count": len(pours),
         "pours": pours,
     })
@@ -119,6 +167,22 @@ def checked(recipe: object) -> dict:
     if meta:
         out["meta"] = meta
     return out
+
+
+def as_sent(recipe: dict) -> dict:
+    """What the machine will actually be told for a `checked()` recipe.
+
+    The firmware only takes a recipe whose pour total equals its ratio byte
+    (one decimal) times the dose, so xbloom-py picks the nearest ratio that
+    works and moves the pour volumes to fit. The shift is a few millilitres
+    at most for whole-gram doses; it is reported so nobody has to guess.
+    """
+    from xbloom.ble import _gate_consistent_volumes
+
+    volumes, ratio_byte = _gate_consistent_volumes(
+        [float(pour["volume_ml"]) for pour in recipe["pours"]], int(recipe["dose_g"]))
+    return {"dose_g": int(recipe["dose_g"]), "ratio": f"1:{ratio_byte / 10:g}",
+            "pour_volumes_ml": volumes, "total_ml": sum(volumes)}
 
 
 def to_machine(recipe: dict) -> dict:
@@ -151,13 +215,13 @@ class RecipeStore:
         for path in sorted(self._dir.glob("*.yaml")):
             try:
                 data = yaml.safe_load(path.read_text())
-            except yaml.YAMLError:
+            except (yaml.YAMLError, UnicodeDecodeError, OSError):
                 data = None
             # A hand-edited file that is not a recipe is listed, not fatal,
             # and its name gets the same cleaning as a saved one.
             name = data.get("name") if isinstance(data, dict) else None
             out.append({"slug": path.stem,
-                        "name": clean_text(name)[:NAME_MAX] if name is not None else None})
+                        "name": clean_text(name)[:NAME_MAX] if isinstance(name, str) else None})
         return out
 
     def get(self, slug: str) -> dict | None:
@@ -167,7 +231,7 @@ class RecipeStore:
             return None
         try:
             data = yaml.safe_load(path.read_text())
-        except yaml.YAMLError as err:
+        except (yaml.YAMLError, UnicodeDecodeError) as err:
             raise RecipeInvalid({"file": "not_yaml"}) from err
         return checked(data)
 

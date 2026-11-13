@@ -40,6 +40,12 @@ do not write files or call the hub another way.
 A failed tool call returns `ok: false` with an `error` and, for a recipe, an
 error code per field in `fields`. Fix the recipe; do not retry unchanged.
 
+`validate_recipe` and `save_recipe` also return `as_sent`: the dose, ratio and
+pour volumes the machine will actually be given. The firmware only accepts a
+pour total equal to a one-decimal ratio times the dose, so the volumes can
+move by a millilitre or two and the ratio by a tenth. If `as_sent` differs
+from what you showed the user, tell them the numbers that will be brewed.
+
 ## The recipe shape
 
 Exactly these keys. Any other key is refused, including ones that look
@@ -68,10 +74,10 @@ plausible (`grinder_size`, `rpm`, `pour_count`).
 | Field | Limit |
 |---|---|
 | `cup_type` | 1 xPod (dose fixed at 15 g), 2 Omni dripper (5-18 g), 3 Other (5-25 g), 4 Tea (1-5 g) |
-| `dose_g` | by cup type, in steps of 0.5 |
+| `dose_g` | by cup type, **whole grams** (the machine is sent whole grams; a half gram would be rounded away) |
 | `ratio` | text `"1:N"`, N from 5 to 25 in steps of 0.5 |
 | `grind` | `true` to grind, `false` for pre-ground coffee. `grind_size` is still required |
-| `grind_size` | 1-80, lower is finer |
+| `grind_size` | 1-80, whole numbers, lower is finer |
 | `grinder_speed_rpm` | 60-120 in steps of 10 |
 | `pours` | 1 to 9 |
 | `volume_ml` | 0-240 per pour, whole numbers. **All pours must add up to dose x N within 0.5 ml** |

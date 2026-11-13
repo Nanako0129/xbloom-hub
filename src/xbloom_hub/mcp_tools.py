@@ -10,7 +10,7 @@ from xbloom.ble import CommandRefused, CommandUnanswered
 
 from .gate import GateRefused
 from .machine import CancelFailed, Machine, NotReady
-from .recipes import BadSlug, RecipeInvalid, RecipeStore, checked, to_machine
+from .recipes import BadSlug, RecipeInvalid, RecipeStore, as_sent, checked, to_machine
 
 INSTRUCTIONS = (
     "Recipes and machine state for an xBloom Studio coffee machine. "
@@ -50,10 +50,13 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
         return {"ok": True, "recipe": recipe} if recipe else {"ok": False, "error": "not_found"}
 
     @server.tool(description="Check a recipe against the machine's limits without saving it. "
-                             "Returns the normalised recipe, or an error code per field.")
+                             "Returns the normalised recipe and, under as_sent, the dose, ratio and "
+                             "pour volumes the machine will actually be given; or an error "
+                             "code per field.")
     async def validate_recipe(recipe: dict) -> dict:
         try:
-            return {"ok": True, "recipe": checked(recipe)}
+            recipe = checked(recipe)
+            return {"ok": True, "recipe": recipe, "as_sent": as_sent(recipe)}
         except _EXPECTED as err:
             return _failure(err)
 
@@ -61,7 +64,8 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
                              "replacing any recipe already stored under that slug.")
     async def save_recipe(slug: str, recipe: dict) -> dict:
         try:
-            return {"ok": True, "slug": slug, "recipe": store.put(slug, recipe)}
+            recipe = store.put(slug, recipe)
+            return {"ok": True, "slug": slug, "recipe": recipe, "as_sent": as_sent(recipe)}
         except _EXPECTED as err:
             return _failure(err)
 
