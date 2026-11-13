@@ -59,7 +59,10 @@ def main() -> None:
     hosts = [h.strip() for h in env.get("XBLOOM_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")]
     app = create_app(machine, store, token, hosts, radio)
     uvicorn.run(app, host=env.get("XBLOOM_BIND", "127.0.0.1"),
-                port=int(env.get("XBLOOM_PORT", "8377")), log_level="info")
+                port=int(env.get("XBLOOM_PORT", "8377")), log_level="info",
+                # An open event stream never ends by itself; without this a
+                # stop waits for every dashboard to close (seen in the S1 run).
+                timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":

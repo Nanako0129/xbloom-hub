@@ -117,6 +117,8 @@ Each ends with an observed check, on the machine unless stated.
 
 ## S1 — hub core
 
+Done 2026-11-14: [S1-RESULTS.md](S1-RESULTS.md).
+
 Written after S0; see [S0-RESULTS.md](S0-RESULTS.md) for the facts it rests
 on.
 
