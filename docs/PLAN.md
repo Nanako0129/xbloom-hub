@@ -222,44 +222,86 @@ localhost, so the hub's middleware is the control and a test proves it covers
 | `load_recipe` | `Machine.load` for a stored recipe: arms, never starts |
 | `cancel_load` | `Machine.cancel` (8017), only while armed |
 
+**Mounting.** The SDK's streamable-HTTP app does not run its own lifespan
+when mounted, so its session manager is entered from the hub's lifespan in
+`app.py`; and its internal path is configured so the endpoint is `/mcp`, not
+`/mcp/mcp`. The SDK's transport security is set explicitly rather than left
+to its host-based default, with the hub's middleware as the control.
+
 There is no start tool and no setting that adds one in this slice. The start
 ticket that `Machine.load` returns is **removed from the MCP result**, so an
 assistant never holds it (P2-2). Tool descriptions are fixed text; no recipe
 content is interpolated into them (P2-6).
 
-**Recipe text (P2-6).** `recipes.checked()` gains limits that apply to every
-caller: `name` at most 80 characters with control characters removed, and an
-optional `meta` mapping (bean, roaster, process, roast, notes, source) of
-strings capped at 500 characters each, likewise cleaned. `meta` is stored and
-returned but never sent to the machine.
+**One recipe shape (invariant 4).** xbloom-py validates one set of field
+names and encodes another: `validate_recipe` checks `grind_size` and
+`grinder_speed_rpm`, while `build_brew_frames` reads `grinder_size`, `rpm`
+and `grinder_size_enabled`, and `normalize_recipe` only copies one way. A
+recipe in the validator's names passes and then goes out with the grinder
+off; a recipe carrying both sets is validated on one and sent with the other.
+S1 never met this because its only recipe used the encoder's names. S2 closes
+it for every caller, not just MCP:
+
+- `recipes.checked()` accepts exactly one shape and refuses any other key, at
+  the top level and inside each pour. Top level: `name`, `cup_type`,
+  `dose_g`, `ratio`, `grind_size`, `grinder_speed_rpm`, `grind` (boolean,
+  default true), `pours`, `meta`. Per pour: `volume_ml`, `temperature_c`,
+  `pause_s`, `pattern`, `flow_rate`, `agitate_before`, `agitate_after`.
+  `pour_count` is derived from `pours`. Bypass water is not supported in this
+  slice and its keys are refused.
+- On top of the library's checks it validates what the library does not:
+  `grind` is a boolean, `agitate_before` and `agitate_after` are 1 or 2.
+- A new `recipes.to_machine()` builds the dictionary the encoder reads from
+  the checked recipe and from nothing else: `grinder_size` from `grind_size`,
+  `rpm` from `grinder_speed_rpm`, `grinder_size_enabled` 1 or 2 from `grind`,
+  and only the listed pour keys. `Machine.load` is given that dictionary.
+- Files already in the library in the old shape are refused on load with the
+  field errors; there is one, the S0 test recipe, and it is rewritten.
+
+**Recipe text (P2-6).** `name` is at most 80 characters with control
+characters removed. `meta` is an optional mapping whose keys are limited to
+`bean`, `roaster`, `process`, `roast`, `notes`, `source` and whose values are
+strings of at most 500 characters, likewise cleaned. Because unknown keys are
+refused, there is no other place for free text. `meta` is stored and returned
+and never reaches `to_machine()`. `RecipeStore.list` returns names through the
+same cleaning, so a hand-edited file cannot inject through the list.
 
 **Skill.** `.claude/skills/xbloom-recipe/` in this repository:
 
 - `SKILL.md`: the workflow (ask about the coffee, design, show the recipe,
   save, load only when the user says they are at the machine, never claim a
-  brew was started), and the hard limits from xbloom-py `spec.py` — grind
-  1-80, dose by cup type, 20-98 °C, flow 3.0-3.5 ml/s, pause 0-59 s, at most
-  9 pours of at most 240 ml, ratio 1:5 to 1:25 in 0.5 steps, pours summing to
-  dose x ratio within 0.5 ml. The ranges in xbloom-agent's instructions
+  brew was started), the field names of the one recipe shape, and the hard
+  limits from xbloom-py `spec.py` — grind 1-80, grinder speed 60-120 RPM in
+  steps of 10, dose by cup type (Omni 5-18 g; 20 g needs cup type 3,
+  "Other", 5-25 g), pattern 1-3, 20-98 °C, flow 3.0-3.5 ml/s, pause a whole
+  number of seconds 0-59, at most 9 pours of at most 240 ml, ratio 1:5 to
+  1:25 in 0.5 steps, pours summing to dose x ratio within 0.5 ml. The ranges in xbloom-agent's instructions
   (grind 40-120, dose 1-31) are wrong and are not carried over.
 - The rule for hand-pour recipes given as start times: pause after a pour =
-  next start - this start - volume / flow rate. A recipe that needs a pause
-  over 59 s or a pour over 240 ml is split or adjusted, and the skill says so.
+  next start - this start - volume / flow rate, rounded to the nearest
+  second. A recipe that needs a pause over 59 s or a pour over 240 ml is
+  split or adjusted, and the skill says so.
 - `brewing-reference.md`: ported from xbloom-agent's brewing reference
   (MIT per its README), with the ranges corrected and the source credited.
 
 **Client setup.** `docs/CLAUDE-CODE.md` with an `.mcp.json` example whose
 `Authorization` header comes from an environment variable, so the token is
-never written into the file or passed on a command line. The exact syntax is
-checked against current Claude Code documentation before it is written down.
+never written into the file or passed on a command line: a `headersHelper`
+script that reads the token file and prints the header, as documented at
+code.claude.com/docs/en/mcp (read 2026-11-14). The page also carries the P2-2
+note: keep direct calls to the hub and reads of the token file out of
+auto-allowed permissions, since the token can do more than the MCP tools.
 
 **Tests (no hardware).** `/mcp` returns 401 without the token for POST and
-for GET, and 400 for a foreign `Host`; the tool list contains no tool whose
-name or description mentions start, brew or resume; `load_recipe` on the
+for GET, and 400 for a foreign `Host`; the tool names are exactly the eight above; `load_recipe` on the
 simulator arms and its result has no ticket; `save_recipe` returns field
-errors for an out-of-range recipe and stores nothing; a name with control
-characters and an over-long `meta` value are cleaned or refused; the gate log
-after a load and cancel through MCP is 8100, 8102, 8104, 8001 or 8004, 8017.
+errors for an out-of-range recipe and stores nothing. For the recipe shape: a
+recipe with `grinder_size`, `rpm`, `grinder_size_enabled`, `pour_count` or any
+other unlisted key is refused; a grinder-on recipe saved through MCP reaches
+the encoder with `grinder_size` and `rpm` equal to the validated values and
+the simulator's gate log is 8100, 8102, 8104, **8001**, then 8017 after
+cancel; the same recipe with `grind: false` gives 8004. A name with control
+characters and an over-long `meta` value are cleaned or refused.
 
 **Observed (user present, in the user's own Claude Code session).**
 
@@ -268,12 +310,17 @@ after a load and cancel through MCP is 8100, 8102, 8104, 8001 or 8004, 8017.
    300 g at 1:45) as the case. The assistant produces a recipe that validates
    and whose pauses follow the start-time rule.
 2. The assistant saves it and, once the user says they are at the machine,
-   loads it; the machine shows the recipe.
+   loads it. The machine's screen shows a grind size, not `--` as it did for
+   the grinder-off recipe in S0, and the hub's gate log shows 8001.
 3. Either the assistant cancels at the user's request and the machine returns
    to home, or the user starts the brew at the machine by hand. This is a real
-   recipe with hot water and the grinder on, so it is loaded only with the
-   user at the machine and a dripper and cup in place; a brew started by the
-   knob is then the intended way to brew, not an accident.
+   recipe with hot water and the grinder on, so a brew started by the knob is
+   the intended way to brew, not an accident. It is loaded only with the user
+   at the machine and everything a brew needs in place: the dose of beans in
+   the grinder, dripper with filter, water in the tank, and a cup that holds
+   the full volume. What the machine does with the cup weight range sent by
+   8104 for cup type 3 is unknown; if it refuses to start, that is recorded,
+   not worked around.
 
 **Non-goals.** Starting, pausing or stopping a brew over MCP; community or
 cloud recipes; brew history and feedback; the dashboard; Docker.
