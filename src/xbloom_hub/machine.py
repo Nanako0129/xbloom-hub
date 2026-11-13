@@ -47,6 +47,8 @@ class Machine:
         self._lifecycle: asyncio.Queue | None = None
         self._released = False
         self._wake = asyncio.Event()
+        self._no_session = asyncio.Event()
+        self._no_session.set()
         self._lock = asyncio.Lock()
         self._changed = asyncio.Event()
         self._subscribers: set[asyncio.Queue] = set()
@@ -139,6 +141,9 @@ class Machine:
     # ---- link ----------------------------------------------------------- #
     async def run(self) -> None:
         """Hold the link for as long as the hub runs; reconnect when it drops."""
+        # Shown until the radio is up: an unreachable proxy or a wrong key
+        # otherwise looks like a plain "offline" with no reason.
+        self._error = "radio_starting"
         try:
             await self._radio.start()
         except Exception as err:  # noqa: BLE001
@@ -146,6 +151,7 @@ class Machine:
             self._error = f"radio_failed: {type(err).__name__}"
             self._publish()
             raise
+        self._error = None
         backoff = 1.0
         while True:
             if self._released:
@@ -170,9 +176,21 @@ class Machine:
             self._error = "machine_not_found"
             self._publish()
             return False
+        if self._released:
+            # release() arrived during the search: do not connect at all.
+            return True
 
         lifecycle: asyncio.Queue = asyncio.Queue()
         self._lifecycle = lifecycle
+        self._no_session.clear()
+        self._activity = None
+        self._weight = None
+
+        def on_raw(decoded: dict) -> None:
+            # Notifications keep arriving until the link is really closed;
+            # ones from a session that is over must not pass for current state.
+            if self._lifecycle is lifecycle:
+                self._on_raw(decoded)
 
         async def resolver():
             return device
@@ -186,7 +204,7 @@ class Machine:
             # xbloom-py drops the link after 300 s of silence by default; the
             # hub is meant to hold it (security review P2-3).
             idle_timeout_s=float("inf"),
-            on_raw=self._on_raw,
+            on_raw=on_raw,
         )
         ready = False
         try:
@@ -212,18 +230,25 @@ class Machine:
         finally:
             self._lifecycle = None
             self._listener = None
-            self._activity = None
-            self._weight = None
-            self._clear_load()
-            await listener.stop()
-            self._publish()
+            try:
+                await listener.stop()
+            finally:
+                self._activity = None
+                self._weight = None
+                self._clear_load()
+                self._no_session.set()
+                self._publish()
 
     async def release(self) -> None:
         """Drop the link and stay off it, so the phone app can have the machine."""
         self._released = True
         if self._lifecycle is not None:
             self._lifecycle.put_nowait(("released", {}))
-        await self._wait_for(lambda: self._listener is None, 10)
+        # Return only once the link is closed, so the phone app can connect.
+        try:
+            await asyncio.wait_for(self._no_session.wait(), 10)
+        except asyncio.TimeoutError:
+            log.warning("release: the session did not close within 10 s")
         self._publish()
 
     async def acquire(self) -> None:
@@ -248,6 +273,11 @@ class Machine:
                 self._clear_load()
                 self._publish()
                 raise
+            if self._listener is not listener:
+                # The link dropped while the recipe was going out. That
+                # session is gone, so there is nothing to issue a ticket for.
+                self._clear_load()
+                raise NotReady("the link dropped during the load")
             digest = hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
             ticket = secrets.token_urlsafe(16)
             self._ticket = {

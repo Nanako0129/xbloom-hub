@@ -117,6 +117,76 @@ def test_load_cancel_release_acquire_on_simulator():
     asyncio.run(run())
 
 
+def test_release_during_the_device_search_never_connects():
+    class SlowRadio(SimRadio):
+        async def find_device(self, timeout: float = 30.0):
+            await asyncio.sleep(0.4)
+            return object()
+
+    started = []
+
+    class Counting(SimListener):
+        async def start(self):
+            started.append(1)
+            await super().start()
+
+    async def run():
+        machine = Machine(SlowRadio(), Counting)
+        task = asyncio.create_task(machine.run())
+        await asyncio.sleep(0.1)                 # still searching
+        await machine.release()
+        await asyncio.sleep(1.5)
+        assert machine.state == "released" and started == [] and machine._listener is None
+        await machine.acquire()
+        assert await machine._wait_for(lambda: machine.state == "idle", 3)
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_link_drop_during_load_issues_no_ticket():
+    class Dropping(SimListener):
+        async def send_prepare(self, recipe):
+            await super().send_prepare(recipe)
+            self._on_lifecycle("failed", {"reason": "connection_lost"})
+            await asyncio.sleep(0.1)             # let the session end first
+
+    async def run():
+        machine = Machine(SimRadio(), Dropping)
+        task = asyncio.create_task(machine.run())
+        assert await machine._wait_for(lambda: machine.state == "idle", 2)
+        with pytest.raises(NotReady):
+            await machine.load("test", RECIPE)
+        assert machine._ticket is None and machine._recipe is None
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_stale_notifications_from_a_closed_session_are_ignored():
+    async def run():
+        machine = Machine(SimRadio(), SimListener)
+        task = asyncio.create_task(machine.run())
+        assert await machine._wait_for(lambda: machine.state == "idle", 2)
+        old = machine._listener
+        await machine.release()
+        old._on_raw({"cmd": 8023, "activity": 1})   # late frame from the old link
+        assert machine.snapshot()["activity"] is None
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_file_that_is_not_a_recipe_is_refused_not_fatal(tmp_path):
+    store = RecipeStore(tmp_path)
+    (tmp_path / "list.yaml").write_text("- 1\n- 2\n")
+    (tmp_path / "broken.yaml").write_text("a: [1\n")
+    assert {r["slug"] for r in store.list()} == {"list", "broken"}
+    for slug in ("list", "broken"):
+        with pytest.raises(RecipeInvalid):
+            store.get(slug)
+
+
 # ---- recipes ------------------------------------------------------------- #
 def test_slug_cannot_leave_the_directory(tmp_path):
     store = RecipeStore(tmp_path / "recipes")

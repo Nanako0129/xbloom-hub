@@ -50,13 +50,26 @@ class RecipeStore:
     def list(self) -> list[dict]:
         out = []
         for path in sorted(self._dir.glob("*.yaml")):
-            data = yaml.safe_load(path.read_text()) or {}
-            out.append({"slug": path.stem, "name": data.get("name")})
+            try:
+                data = yaml.safe_load(path.read_text())
+            except yaml.YAMLError:
+                data = None
+            # A hand-edited file that is not a recipe is listed, not fatal.
+            name = data.get("name") if isinstance(data, dict) else None
+            out.append({"slug": path.stem, "name": name})
         return out
 
     def get(self, slug: str) -> dict | None:
         path = self._path(slug)
-        return yaml.safe_load(path.read_text()) if path.exists() else None
+        if not path.exists():
+            return None
+        try:
+            data = yaml.safe_load(path.read_text())
+        except yaml.YAMLError as err:
+            raise RecipeInvalid({"file": "not_yaml"}) from err
+        if not isinstance(data, dict):
+            raise RecipeInvalid({"file": "not_a_recipe"})
+        return data
 
     def put(self, slug: str, recipe: object) -> dict:
         path = self._path(slug)
