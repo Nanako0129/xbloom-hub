@@ -115,7 +115,64 @@ Each ends with an observed check, on the machine unless stated.
 | S5 | Home Assistant: state published over MQTT (method reconfirmed with the user then) | entities change during a brew |
 | S6 | Optional: xBloom account sync, brew rating fed back into recipe revision | decided later |
 
+## S1 — hub core
+
+Written after S0; see [S0-RESULTS.md](S0-RESULTS.md) for the facts it rests
+on.
+
+**Outcome.** A hub process, run natively with `uv run`, that holds the link
+through the proxy, keeps a recipe library, loads a stored recipe onto the
+machine over REST, and streams machine state over SSE. No start endpoint, no
+MCP, no dashboard, no container.
+
+**Files.** `pyproject.toml`; `src/xbloom_hub/` with
+
+| Module | Does |
+|---|---|
+| `gate.py` | Invariant 1. `make_gated(base)` as proven in S0; allow-list for S1 is load (8100, 8102, 8104, 8001, 8004) plus 8017. Start and resume codes are not in any S1 list |
+| `radio.py` | Proxy connection (`noise_psk` required, no plaintext path), device lookup from the proxy scanner's table, reconnect with backoff. A local-Bluetooth option for development |
+| `machine.py` | Owns the one `XBloomModeListener`. States `offline / idle / armed / asleep`; reads weight before a load; fans events out to subscribers; `release()` and `acquire()` for invariant 6; idle timeout set explicitly (P2-3) |
+| `sim.py` | A fake with the same interface as `machine.py`, for tests and later UI work |
+| `recipes.py` | YAML files under the data directory; `yaml.safe_load`; file name from a `[a-z0-9-]` slug; `normalize_recipe` + `validate_recipe` on every write and every load (invariant 4, P2-5) |
+| `app.py` | Starlette. `GET /api/state`, `GET /api/events` (SSE), `GET/PUT/DELETE /api/recipes/{slug}`, `POST /api/machine/load`, `POST /api/machine/cancel`, `POST /api/link/release`, `POST /api/link/acquire` |
+
+**Security in this slice (P1-3, P2-1).** Every non-GET request needs
+`Authorization: Bearer` matching a token read from a file named by an
+environment variable, compared with `hmac.compare_digest`; no cookie, no
+query-string token, no CORS middleware. `TrustedHostMiddleware` with a
+configured host list. A request whose `Origin` is present and not the hub's
+own is refused. GET never changes anything. A load returns the one-time start
+ticket of invariant 3 so the contract is fixed now; nothing consumes it until
+the start endpoint exists.
+
+**Tests (no hardware).** The gate against every `CMD_*` constant in
+`xbloom.ble` and an undecodable frame; recipe slugs that try to leave the data
+directory; 401 without the token, 400 for a foreign `Host`, 403 for a foreign
+`Origin`; load and cancel against the simulator; an invalid recipe is refused
+before any write.
+
+**Observed on the machine (user present).**
+
+1. `curl` loads a stored recipe; the machine shows it; the SSE stream reports
+   the armed state and the weight read before the load.
+2. **Cancel experiment:** `POST /api/machine/cancel` sends 8017. Same harmless
+   recipe and physical precondition as S0 (grinder off, 25 ml, room
+   temperature, no beans, dripper and empty cup). Pass: the machine returns to
+   home and the next status says so. If 8017 is refused, unanswered, or does
+   anything else: record it, let the machine sleep out as in S0, and remove
+   8017 from the allow-list.
+3. Restart the proxy app; the hub reconnects without being restarted.
+4. `release`, connect with the official app, close it, `acquire`.
+
+**Non-goals.** Start, pause, resume, stop; MCP; dashboard; Docker; Home
+Assistant; cloud; lock-screen scanning on the phone.
+
+**Rollback.** New files only.
+
 ## S0 — prove the radio path
+
+Done 2026-11-14: [S0-RESULTS.md](S0-RESULTS.md). The text below is the slice
+as reviewed, kept unedited; its "power button" exit turned out not to exist.
 
 **Outcome.** Evidence that phone proxy → bleak-esphome → xbloom-py → machine
 works, and that the load-only path of invariant 2 behaves as read, before any
