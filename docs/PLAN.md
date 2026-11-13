@@ -191,6 +191,95 @@ Assistant; cloud; lock-screen scanning on the phone.
 
 **Rollback.** New files only.
 
+## S2 — Claude Code
+
+Written after S1; see [S1-RESULTS.md](S1-RESULTS.md) and
+[OFFICIAL-APP-NOTES.md](OFFICIAL-APP-NOTES.md).
+
+**Outcome.** From Claude Code, an assistant can design a recipe for a given
+coffee, save it to the hub's library, and load it onto the machine, using MCP
+tools served by the hub and a skill that carries the brewing knowledge and the
+machine's real limits. It cannot start a brew.
+
+**MCP endpoint.** The official `mcp` SDK, pinned to an exact version at or
+above 1.23.0, serving streamable HTTP at `/mcp` inside the existing Starlette
+app. It sits behind the same `TrustedHostMiddleware` and `Guard`, with one
+change to `Guard`: **every request under `/mcp` needs the bearer token,
+whatever its method** (P1-3; elsewhere GET stays open because it only reads).
+The SDK's own DNS-rebinding protection is off when bound to anything but
+localhost, so the hub's middleware is the control and a test proves it covers
+`/mcp`.
+
+**Tools.** Thin wrappers over what S1 already has:
+
+| Tool | Does |
+|---|---|
+| `list_recipes`, `get_recipe` | Read the library |
+| `validate_recipe` | Run `normalize_recipe` + `validate_recipe` and return the errors by field, without saving |
+| `save_recipe` | Validate and store under a slug |
+| `delete_recipe` | Remove one |
+| `machine_state` | The public snapshot |
+| `load_recipe` | `Machine.load` for a stored recipe: arms, never starts |
+| `cancel_load` | `Machine.cancel` (8017), only while armed |
+
+There is no start tool and no setting that adds one in this slice. The start
+ticket that `Machine.load` returns is **removed from the MCP result**, so an
+assistant never holds it (P2-2). Tool descriptions are fixed text; no recipe
+content is interpolated into them (P2-6).
+
+**Recipe text (P2-6).** `recipes.checked()` gains limits that apply to every
+caller: `name` at most 80 characters with control characters removed, and an
+optional `meta` mapping (bean, roaster, process, roast, notes, source) of
+strings capped at 500 characters each, likewise cleaned. `meta` is stored and
+returned but never sent to the machine.
+
+**Skill.** `.claude/skills/xbloom-recipe/` in this repository:
+
+- `SKILL.md`: the workflow (ask about the coffee, design, show the recipe,
+  save, load only when the user says they are at the machine, never claim a
+  brew was started), and the hard limits from xbloom-py `spec.py` — grind
+  1-80, dose by cup type, 20-98 °C, flow 3.0-3.5 ml/s, pause 0-59 s, at most
+  9 pours of at most 240 ml, ratio 1:5 to 1:25 in 0.5 steps, pours summing to
+  dose x ratio within 0.5 ml. The ranges in xbloom-agent's instructions
+  (grind 40-120, dose 1-31) are wrong and are not carried over.
+- The rule for hand-pour recipes given as start times: pause after a pour =
+  next start - this start - volume / flow rate. A recipe that needs a pause
+  over 59 s or a pour over 240 ml is split or adjusted, and the skill says so.
+- `brewing-reference.md`: ported from xbloom-agent's brewing reference
+  (MIT per its README), with the ranges corrected and the source credited.
+
+**Client setup.** `docs/CLAUDE-CODE.md` with an `.mcp.json` example whose
+`Authorization` header comes from an environment variable, so the token is
+never written into the file or passed on a command line. The exact syntax is
+checked against current Claude Code documentation before it is written down.
+
+**Tests (no hardware).** `/mcp` returns 401 without the token for POST and
+for GET, and 400 for a foreign `Host`; the tool list contains no tool whose
+name or description mentions start, brew or resume; `load_recipe` on the
+simulator arms and its result has no ticket; `save_recipe` returns field
+errors for an out-of-range recipe and stores nothing; a name with control
+characters and an over-long `meta` value are cleaned or refused; the gate log
+after a load and cancel through MCP is 8100, 8102, 8104, 8001 or 8004, 8017.
+
+**Observed (user present, in the user's own Claude Code session).**
+
+1. The user asks for a recipe for a coffee, using the hand-pour card from
+   2026-11-14 (20 g; 80 °C to 60 g at 0:00, 95 °C to 180 g at 0:45, 80 °C to
+   300 g at 1:45) as the case. The assistant produces a recipe that validates
+   and whose pauses follow the start-time rule.
+2. The assistant saves it and, once the user says they are at the machine,
+   loads it; the machine shows the recipe.
+3. Either the assistant cancels at the user's request and the machine returns
+   to home, or the user starts the brew at the machine by hand. This is a real
+   recipe with hot water and the grinder on, so it is loaded only with the
+   user at the machine and a dripper and cup in place; a brew started by the
+   knob is then the intended way to brew, not an accident.
+
+**Non-goals.** Starting, pausing or stopping a brew over MCP; community or
+cloud recipes; brew history and feedback; the dashboard; Docker.
+
+**Rollback.** New files plus additive changes to `app.py` and `recipes.py`.
+
 ## S0 — prove the radio path
 
 Done 2026-11-14: [S0-RESULTS.md](S0-RESULTS.md). The text below is the slice
