@@ -130,8 +130,8 @@ MCP, no dashboard, no container.
 | Module | Does |
 |---|---|
 | `gate.py` | Invariant 1. `make_gated(base)` as proven in S0; allow-list for S1 is load (8100, 8102, 8104, 8001, 8004) plus 8017. Start and resume codes are not in any S1 list |
-| `radio.py` | Proxy connection (`noise_psk` required, no plaintext path), device lookup from the proxy scanner's table, reconnect with backoff. A local-Bluetooth option for development |
-| `machine.py` | Owns the one `XBloomModeListener`. States `offline / idle / armed / asleep`; reads weight before a load; fans events out to subscribers; `release()` and `acquire()` for invariant 6; idle timeout set explicitly (P2-3) |
+| `radio.py` | Proxy connection to an IP address from configuration, no mDNS lookup (P2-3); `noise_psk` required, no plaintext path; device lookup from the proxy scanner's table; reconnect with backoff. A local-Bluetooth option for development |
+| `machine.py` | Owns the one `XBloomModeListener`. States `offline / idle / armed / asleep / released`; caches weight from `on_raw` so it is known before a load; fans events out to subscribers; idle timeout set explicitly (P2-3). The library does not reconnect, so on lifecycle `failed` it calls `start()` again — except in `released`, which is how `release()` keeps the hub from taking the link back (invariant 6). **Gate check on every connect and reconnect, proxy and local:** the session is not usable (no `idle`, no load, no cancel) unless its client is an instance of the gated class and the gate's first logged code for that session is 8100. Cancel (8017) is accepted only in `armed`, and a refused or unanswered 8017 is returned as an error |
 | `sim.py` | A fake with the same interface as `machine.py`, for tests and later UI work |
 | `recipes.py` | YAML files under the data directory; `yaml.safe_load`; file name from a `[a-z0-9-]` slug; `normalize_recipe` + `validate_recipe` on every write and every load (invariant 4, P2-5) |
 | `app.py` | Starlette. `GET /api/state`, `GET /api/events` (SSE), `GET/PUT/DELETE /api/recipes/{slug}`, `POST /api/machine/load`, `POST /api/machine/cancel`, `POST /api/link/release`, `POST /api/link/acquire` |
@@ -141,28 +141,48 @@ MCP, no dashboard, no container.
 environment variable, compared with `hmac.compare_digest`; no cookie, no
 query-string token, no CORS middleware. `TrustedHostMiddleware` with a
 configured host list. A request whose `Origin` is present and not the hub's
-own is refused. GET never changes anything. A load returns the one-time start
-ticket of invariant 3 so the contract is fixed now; nothing consumes it until
-the start endpoint exists.
+own is refused. GET never changes anything. **Auth fails closed:** the hub
+refuses to start when the token variable is unset or the file is missing or
+empty after stripping whitespace, and an empty presented token is always 401.
+A load returns the one-time start ticket of invariant 3 so the contract is
+fixed now; nothing consumes it until the start endpoint exists, and it never
+appears in `GET /api/state` or the SSE stream.
 
 **Tests (no hardware).** The gate against every `CMD_*` constant in
-`xbloom.ble` and an undecodable frame; recipe slugs that try to leave the data
-directory; 401 without the token, 400 for a foreign `Host`, 403 for a foreign
-`Origin`; load and cancel against the simulator; an invalid recipe is refused
+`xbloom.ble` and an undecodable frame; a session whose client is not the gated
+class stays out of `idle`/`armed` and refuses load; recipe slugs that try to
+leave the data directory; the process exits on a missing or empty token file;
+401 without the token and for `Authorization: Bearer ` with an empty token,
+400 for a foreign `Host`, 403 for a foreign `Origin`; load and cancel against
+the simulator, cancel refused outside `armed`; an invalid recipe is refused
 before any write.
 
-**Observed on the machine (user present).**
+**Prerequisites (user).** As S0, plus: mDNS advertising set to disabled in
+the proxy app (P2-3); phone screen on for the whole run, since the proxy
+reports no advertisements while locked.
 
-1. `curl` loads a stored recipe; the machine shows it; the SSE stream reports
-   the armed state and the weight read before the load.
-2. **Cancel experiment:** `POST /api/machine/cancel` sends 8017. Same harmless
-   recipe and physical precondition as S0 (grinder off, 25 ml, room
-   temperature, no beans, dripper and empty cup). Pass: the machine returns to
-   home and the next status says so. If 8017 is refused, unanswered, or does
-   anything else: record it, let the machine sleep out as in S0, and remove
-   8017 from the allow-list.
-3. Restart the proxy app; the hub reconnects without being restarted.
-4. `release`, connect with the official app, close it, `acquire`.
+**Observed on the machine (user present).** Every step that loads uses the S0
+recipe (grinder off, 5 g, one 25 ml pour at 20 °C) and the S0 physical
+precondition (no beans, dripper and empty cup in place), so a knob press by
+mistake pours 25 ml of unheated water.
+
+1. `curl` loads that recipe; the machine shows it; the SSE stream reports the
+   armed state and the weight read before the load. **Exit:** step 2.
+2. **Cancel experiment:** `POST /api/machine/cancel` sends 8017. Pass: the
+   machine returns to home and the hub reports activity `1`. If 8017 is
+   refused, unanswered, or does anything else: record it, remove 8017 from
+   the allow-list, and exit the armed state by waiting for the machine's own
+   sleep — releasing the link first if it does not sleep while the hub holds
+   it — with pulling the plug as the last resort.
+3. Only once the hub reports activity `1`: restart the proxy app; the hub
+   reconnects without being restarted, and its log shows the gate passing
+   8100 on the new session.
+4. Only once the hub reports activity `1`: `release`, connect with the
+   official app, close it, `acquire`.
+
+The run note records activity `1` before steps 3 and 4, and that mDNS
+advertising was off. Reconnecting with the phone screen locked is not covered
+and stays unproven.
 
 **Non-goals.** Start, pause, resume, stop; MCP; dashboard; Docker; Home
 Assistant; cloud; lock-screen scanning on the phone.
