@@ -799,11 +799,16 @@ Animations API). Browser tests: `pytest-playwright` in the project's own
 Python environment, with Chromium installed by Playwright into its own
 cache; the owner agreed to that install.
 
-**Supply chain.** Installs run `npm ci --ignore-scripts` from the lock file;
-a package that needs its install script is named in the plan before it is
-allowed, not discovered. Dependencies are added only by exact version. Node
-runs only to build; the hub at run time is Python serving files. A later
-Docker image (S4) builds in a separate stage and copies only the output.
+**Supply chain.** Every npm command runs in a throwaway container (OrbStack
+on the Mac), never on the host: see the dispositions below. Node runs only
+to build; the hub at run time is Python serving files. S4's image builds in
+a separate stage with the same script and copies only the output.
+
+Code in the page shares the origin, and so the token, with everything the
+page can do: a compromised package in the bundle could load and start a
+brew without the dialog. The confirmation and the one-time ticket guard
+against mistakes and other callers, not against code in the page. This is
+new with this slice; the hand-written page had no third-party code.
 
 **Layout.**
 
@@ -850,6 +855,26 @@ Docker image (S4) builds in a separate stage and copies only the output.
   is kept only after a `no_cup` refusal; Stop is never disabled or replaced
   by a redraw while a brew runs; one request at a time.
 
+**Security dispositions for this slice.** Reviewed read-only on 2026-11-14:
+no P0, two P1, six P2, four P3, one P4. The owner decided the two P1s and the
+WebKit download the same day.
+
+| ID | Finding | Disposition |
+|---|---|---|
+| C1 P1 | Building runs every package's code with the owner's rights on a Mac that holds credentials | FIX (owner: containers). `frontend/npm.sh` runs every npm command (`ci`, `install <pkg>@x.y.z`, `run build`, `run check`) in `docker run --rm` on a Node image pinned by digest, mounting only `frontend/` and `src/xbloom_hub/web/`, no home, ssh agent, env file or `secrets/`; `node_modules` in a named volume, not the host tree. Stop: an npm command about to run on the host. Step 2 |
+| C2 P1 | A package in the bundle can start a brew with the page's token | FIX + ACCEPT (owner). The build fails if the bundle holds a module from a package outside {`svelte` and its runtime dependencies as resolved, `echarts`, `zrender`, `tslib`}, read from the bundler's module graph in a Vite plugin; a planted extra import is shown to fail it. The residual risk, a compromised package on that list, is accepted by the owner. Applies from step 2 |
+| C3 P2 | Adding a package runs its scripts; pins drift | FIX. `frontend/.npmrc`: `ignore-scripts=true`, `save-exact=true`, and a release cooldown of 7 days (`min-release-age`, or `before=<date>` if the container's npm does not know it; checked with `npm config get` in the container). Top level, exactly: `vite`, `svelte`, `@sveltejs/vite-plugin-svelte`, `typescript`, `svelte-check`, `echarts`. Step 2 |
+| C4 P3 | Nothing checks the lock file | FIX. On every change to `package-lock.json` a script checks each `resolved` is on `registry.npmjs.org` and each entry has a `sha512` integrity; `npm audit signatures` and `npm audit` run in the container; the pull request lists packages added and removed. An invalid signature fails; missing provenance is recorded. Step 2 |
+| C5 P2 | ECharts' HTML tooltip writes strings into `innerHTML` with inline styles | FIX. No ECharts tooltip in HTML mode and no string formatter: the reading under the pointer is a Svelte component fed by the chart's axis-pointer events (`tooltip.show: false`), or `renderMode: 'richText'`. Untrusted names only in data and series names. Step 3, with C7's tests |
+| C6 P2 | The CSP test sees only what it triggers, in one engine | FIX. The listener is installed by `add_init_script` and a CSP console message also fails; chart tests hover and zoom, and the dialog and transitions are exercised; the CSP tests run in Chromium and WebKit (owner agreed to the download). Page code sets dynamic styles only per property; no static `style="…"` in templates. Steps 1 to 6 |
+| C7 P2 | The text scans for `innerHTML` cannot read a Svelte bundle | FIX. `test_the_page_has_nothing_inline_and_puts_no_data_in_innerhtml` and `test_views_that_fetch_never_paint_directly` are replaced by browser tests that put hostile strings (markup with an event handler, `{a|b}`, 10 000 characters) into every untrusted sink: recipe name, notes and meta, history and compare labels, chart series and legend names, the console log and gate lines; each shows as text with no new element. `meta.source` cases: `javascript:`, `data:`, a leading space and `HTTPS://` are not links; `https://` is, with `rel="noopener noreferrer"`. No `{@html}`, no spread of data onto elements, no element named from data. Step 1 for the old page, then for each new page |
+| C8 P2 | Vite's dev server cannot run under the CSP and has had file-read advisories | FIX. The development loop is `vite build --watch` in the container into `web/`, served at `/next/` by a simulator hub with a throwaway token. The dev server is not used against any hub, never with `--host`, never with a proxy to a real hub |
+| C9 P2 | Stop is disabled while another request is in flight | FIX. Stop is exempt from the one-request lock (the hub serialises stops itself), on the old page in step 1 and on the new one; a test holds the start request, drives the simulator into brewing and sees Stop enabled and its POST reach the hub |
+| C10 P3 | Token handling order and boundaries | FIX. `hub.ts` reads `#t=` and clears it with `history.replaceState` before mounting or routing; `api()` takes only absolute `/api/…` paths; the token and the ticket never go into logs, error text, `import.meta.env` or a `.env`; `/api/community` sends the token on GET too. Test: after opening with `#t=`, the hash is clean and no text holds the token. Step 2 |
+| C11 P3 | Ordering: the step-2 console and the step-5 brewing view would hold controls before step 6 | FIX. Until step 6 `/next/` has no action buttons (the console is read-only, the brewing view has no Stop) and `/` is the control surface during any real brew |
+| C12 P3 | Build output hygiene | FIX. `.gitignore` gains `frontend/node_modules` and `src/xbloom_hub/web`; Vite `emptyOutDir: true` |
+| C13 P4 | Inlined assets as `data:` URIs | FIX. `build.assetsInlineLimit: 0` |
+
 **Order.** Each step is one pull request, through the usual gate.
 
 1. **Browser tests against the current page**, before anything else:
@@ -861,7 +886,8 @@ Docker image (S4) builds in a separate stage and copies only the output.
    as text; and four that hold the safety behaviour itself:
    - one request at a time: the start (and the load) request is held with
      `page.route`, the button is pressed again, and exactly one request
-     reaches the hub;
+     reaches the hub; Stop is the exception (C9): with the start request
+     held and the simulator brewing, Stop is enabled and its POST arrives;
    - Stop is not replaced: during a brew a handle is taken on the Stop
      element, several snapshots pass, and it is the same connected node,
      still enabled;
@@ -917,7 +943,7 @@ contract.
 pull request of step 6 is reverted.
 
 **Stops.** A package needs its install script and it is not one named
-here: stop and ask. The CSP would have to change: stop and ask. A browser
+here: stop and ask. An npm command is about to run on the host: stop. The CSP would have to change: stop and ask. A browser
 test of a safety flow fails on the new page: the switch waits.
 
 ## S0 — prove the radio path
