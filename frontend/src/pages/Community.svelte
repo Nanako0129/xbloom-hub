@@ -1,56 +1,63 @@
+<script lang="ts" module>
+  import type { Page, Criteria } from "../lib/community";
+  // Kept for the life of the page, not of this view: opening a recipe and
+  // coming back (by the link or the browser's Back) finds the search, its
+  // results and the scroll position as they were, with no new request.
+  const kept = $state({
+    criteria: {} as Criteria, keyword: "", source: "", sort: "date", chosen: {} as Record<string, string>,
+    page: 1, asked: "", results: null as Page | null, scrollY: 0,
+  });
+</script>
+
 <script lang="ts">
   // xBloom's community recipes, searched through the hub (docs/PLAN.md, S3b).
   // Every string under from_xbloom_users was written by strangers: it is only
   // ever put into the page as text, which Svelte does for {expressions}.
+  import { onMount } from "svelte";
   import { api } from "../lib/hub.svelte";
   import { t } from "../lib/i18n.svelte";
   import { act, work } from "../lib/actions.svelte";
 
-  interface Card {
-    id: number; official: boolean; name: string; author: string; origin: string[]; roast: string;
-    dose_g: number | null; water_ratio: number | null; pour_count: number | null; likes: number | null;
-  }
-  interface Page { page: number; total_pages: number; total: number; from_xbloom_users: { recipes: Card[] } }
-  type Criteria = Record<string, string[]>;
-
   const FILTERS = [["machine", "community.machine"], ["origins", "community.origin"],
                    ["processes", "community.process"], ["roasts", "community.roast"]] as const;
-
-  let criteria = $state<Criteria>({});
-  let keyword = $state("");
-  let source = $state("");
-  let sort = $state("date");
-  let chosen = $state<Record<string, string>>({});
   const MAX_PAGE = 50;        // the hub's own limit on a page number
-  let page = $state(1);
-  let asked = new URLSearchParams();   // the query whose results are on screen
-  let results = $state<Page | null>(null);
+
   let failed = $state("");
   let searching = $state(false);
   let link = $state("");
   let linkSlug = $state("");
 
-  // One after the other: the hub runs two requests to xBloom at most.
-  api<{ from_xbloom_users: Criteria }>("GET", "/api/community/criteria")
-    .then((answer) => { criteria = answer.from_xbloom_users; }).catch(() => { /* filters stay empty */ })
-    .finally(() => search());
+  onMount(() => {
+    if (kept.results) {
+      requestAnimationFrame(() => window.scrollTo(0, kept.scrollY));
+    } else {
+      // One after the other: the hub runs two requests to xBloom at most.
+      api<{ from_xbloom_users: Criteria }>("GET", "/api/community/criteria")
+        .then((answer) => { kept.criteria = answer.from_xbloom_users; }).catch(() => { /* filters stay empty */ })
+        .finally(() => search());
+    }
+    return () => { kept.scrollY = window.scrollY; };
+  });
 
   // A new search reads the form; paging keeps the query that is on screen.
   async function search(at = 1, query = formQuery()) {
     failed = ""; searching = true;
     query.set("page", String(at));
-    try { results = await api<Page>("GET", `/api/community/search?${query}`); asked = query; page = at; }
+    try {
+      kept.results = await api<Page>("GET", `/api/community/search?${query}`);
+      kept.asked = query.toString(); kept.page = at;
+    }
     catch (error) { failed = (error as Error).message; }
     finally { searching = false; }
   }
   function formQuery(): URLSearchParams {
-    const query = new URLSearchParams({ sort });
-    if (keyword.trim()) query.set("keyword", keyword.trim());
-    if (source) query.set("source", source);
-    for (const [key] of FILTERS) if (chosen[key]) query.set(key, chosen[key]);
+    const query = new URLSearchParams({ sort: kept.sort });
+    if (kept.keyword.trim()) query.set("keyword", kept.keyword.trim());
+    if (kept.source) query.set("source", kept.source);
+    for (const [key] of FILTERS) if (kept.chosen[key]) query.set(key, kept.chosen[key]);
     return query;
   }
-  const lastPage = $derived(Math.min(results?.total_pages ?? 1, MAX_PAGE));
+  const lastPage = $derived(Math.min(kept.results?.total_pages ?? 1, MAX_PAGE));
 
   const importLink = () => act(async () => {
     const answer = await api<{ slug: string }>("POST", "/api/community/import", { share_url: link.trim(), slug: linkSlug.trim() });
@@ -63,25 +70,25 @@
 <p class="muted">{t("community.hint")}</p>
 
 <form class="card community-form community-search" onsubmit={(event) => { event.preventDefault(); search(1); }}>
-  <label><span>{t("community.keyword")}</span><input type="search" maxlength="80" bind:value={keyword} /></label>
+  <label><span>{t("community.keyword")}</span><input type="search" maxlength="80" bind:value={kept.keyword} /></label>
   <label><span>{t("community.source")}</span>
-    <select bind:value={source}>
+    <select bind:value={kept.source}>
       <option value="">{t("community.any")}</option>
       <option value="official">{t("community.official")}</option>
       <option value="community">{t("community.users")}</option>
     </select></label>
   <label><span>{t("community.sort")}</span>
-    <select bind:value={sort}>
+    <select bind:value={kept.sort}>
       <option value="date">{t("community.sort_date")}</option>
       <option value="likes">{t("community.sort_likes")}</option>
       <option value="downloads">{t("community.sort_downloads")}</option>
     </select></label>
   {#each FILTERS as [key, label] (key)}
-    {#if criteria[key]?.length}
+    {#if kept.criteria[key]?.length}
       <label><span>{t(label)}</span>
-        <select bind:value={chosen[key]}>
+        <select bind:value={kept.chosen[key]}>
           <option value="">{t("community.any")}</option>
-          {#each criteria[key] as name (name)}<option value={name}>{name}</option>{/each}
+          {#each kept.criteria[key] as name (name)}<option value={name}>{name}</option>{/each}
         </select></label>
     {/if}
   {/each}
@@ -90,14 +97,14 @@
 
 {#if failed}
   <p class="notice bad">{failed}</p>
-{:else if !results}
+{:else if !kept.results}
   <p class="muted">{t("loading")}</p>
-{:else if !results.from_xbloom_users.recipes.length}
+{:else if !kept.results.from_xbloom_users.recipes.length}
   <p class="muted">{t("community.none")}</p>
 {:else}
-  <p class="muted num">{t("community.results", { total: results.total, page: results.page, pages: results.total_pages })}</p>
+  <p class="muted num">{t("community.results", { total: kept.results.total, page: kept.results.page, pages: kept.results.total_pages })}</p>
   <div class="grid three" aria-busy={searching}>
-    {#each results.from_xbloom_users.recipes as card (card.id)}
+    {#each kept.results.from_xbloom_users.recipes as card (card.id)}
       <a class="recipe community-card" href="#/community/{card.id}">
         <div class="name">{card.name}</div>
         <div class="line">{#if card.official}<span class="badge">{t("community.official")}</span>{/if}{card.author}</div>
@@ -107,8 +114,8 @@
     {/each}
   </div>
   <div class="actions">
-    <button class="quiet" disabled={searching || results.page <= 1} onclick={() => search(page - 1, new URLSearchParams(asked))}>{t("community.prev")}</button>
-    <button class="quiet" disabled={searching || results.page >= lastPage} onclick={() => search(page + 1, new URLSearchParams(asked))}>{t("community.next")}</button>
+    <button class="quiet" disabled={searching || kept.results.page <= 1} onclick={() => search(kept.page - 1, new URLSearchParams(kept.asked))}>{t("community.prev")}</button>
+    <button class="quiet" disabled={searching || kept.results.page >= lastPage} onclick={() => search(kept.page + 1, new URLSearchParams(kept.asked))}>{t("community.next")}</button>
   </div>
 {/if}
 

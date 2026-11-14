@@ -60,3 +60,25 @@ def test_next_stops_at_the_hubs_last_page(ui, hub):
     go(ui, hub, "#/community")
     expect(ui.locator("a.community-card")).to_have_count(2)
     expect(ui.get_by_role("button", name="Next")).to_be_disabled()
+
+
+def test_coming_back_from_a_recipe_keeps_the_search(ui, hub):
+    searches = []
+    ui.on("request", lambda r: searches.append(r.url) if "/api/community/search" in r.url else None)
+    go(ui, hub, "#/community")
+    expect(ui.locator("a.community-card")).to_have_count(2)
+    ui.locator("input[type=search]").fill("kenya")
+    ui.get_by_role("button", name="Search").click()
+    ui.wait_for_timeout(300)
+    asked = len(searches)
+    for back in ("link", "browser"):
+        ui.locator("a.community-card").first.click()
+        expect(ui.locator("#community-slug")).to_be_visible()
+        if back == "link":
+            ui.get_by_role("link", name="Back to community recipes").click()
+        else:
+            ui.go_back()
+        expect(ui.locator("a.community-card")).to_have_count(2)
+        expect(ui.locator("input[type=search]")).to_have_value("kenya")
+    ui.wait_for_timeout(300)
+    assert len(searches) == asked, searches        # nothing asked again of xBloom
