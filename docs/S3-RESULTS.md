@@ -4,6 +4,38 @@ Run on 2026-11-14 with the owner at the machine, firmware V12.0D.500, the
 radio path of S0 to S2. Steps are those of `docs/PLAN.md`, S3, "Observed on
 the machine".
 
+## Step 2: Stop (done, 2026-11-14)
+
+Recipe: grinder off, 5 g, 1:20, one 100 ml pour at 20 °C and 3.0 ml/s.
+Loaded and started from the dashboard; Stop pressed on the page. Five runs,
+19:37 to 19:40; seconds are from the opening of each record.
+
+| Run | Recipe | Water | Stop (40519 sent) | Machine home | Water when stopped |
+|---|---|---|---|---|---|
+| 1 | 100 ml | none | 18.4 s | 18.8 s | 0 ml |
+| 2 | 100 ml | none | 34.9 s | 35.3 s | 0 ml |
+| 3 | 25 ml (control) | from 22.1 s | 33.6 s, after the pour ended | 34.0 s | 25 ml |
+| 4 | 100 ml | from 1.1 s | 13.0 s | 13.4 s | 47.7 ml |
+| 5 | 100 ml | from 0.9 s | 12.2 s | 12.6 s | 45.0 ml |
+
+**Stop works.** Each time: one 40519 through the gate, its echo within
+0.4 s, activity `1` within another 0.5 s, no 40512 and no finished screen;
+the record closed `stopped` with `stop_sent: true`. In runs 4 and 5 the
+water count stopped rising at the stop and the next reading was 0. Stop
+stays on the page.
+
+**Runs 1 to 3 drew no water at first.** The owner, at the machine: the pump
+did not take up water, and air came out of the spout. The machine reported
+the pour as started (40510 at 0.6 s, as always) and the scale stayed under
+1.5 g. During that time it sent 40522 again and again (six times in run 3,
+between 7 and 16 s); in runs 4 and 5, which drew water at once, 40522 never
+came. In run 3 the machine reported a pause and a resume (9010 and 40515 at
+18.5 s with activity `31`, then 9011 and 40516 at 21.0 s with activity
+`35`); the hub sent neither, and whether they came from the knob or from
+the machine itself is not recorded. Water came one second after the
+resume. Why the pump took air is not known; air in the line or a tank not
+fully seated would fit, and neither was checked.
+
 ## Step 1: a harmless start (done, three times)
 
 Recipe: grinder off, 5 g, 1:5, one 25 ml pour at 20 °C and 3.0 ml/s. Loaded
@@ -66,6 +98,14 @@ after the brew opened):
   pour set to 3.0 ml/s. One short pour is not enough to say the rate is off;
   step 4 measures it on a real recipe.
 - The 40512 came 6 to 8 s after the pour ended (13.3, 15.3 and 15.4 s).
+- **40522, inferred: the pump is drawing no water.** It repeated through
+  the dry starts of step 2 and never came in a start that drew water at
+  once. It also came once in step 1. The page says nothing about it yet: a
+  brew that pours air looks like a brew that has not started. Worth showing
+  ("no water is reaching the spout") once a second dry start confirms it.
+- During a pause made at the machine, the activity is `31` while the hub
+  keeps the brew open; the page went on showing the brew, which is right,
+  but it does not say "paused".
 
 ## Known and left
 
@@ -78,4 +118,4 @@ after the brew opened):
 
 - No 9002 or 9008 (cup on, cup off) arrived during the run. Whether the cup
   was lifted is not recorded, so this says nothing yet about those events.
-- Steps 2 (stop), 3 (started at the knob) and 4 (a real brew) are still to do.
+- Steps 3 (started at the knob) and 4 (a real brew) are still to do.
