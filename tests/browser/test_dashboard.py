@@ -89,22 +89,41 @@ def test_stop_is_not_held_behind_a_start(ui, hub):
     hub.wait_state("brewing")
     stop = ui.locator("#stop")
     expect(stop).to_be_enabled()
-    # The start's answer arriving mid-brew must not replace or disable Stop.
     handle = stop.element_handle()
-    for route in held:
-        route.continue_()
-    held.clear()
-    ui.wait_for_function("() => !('busy' in document.body.dataset)")
-    ui.wait_for_timeout(500)
-    assert handle.evaluate("(e) => e.isConnected && !e.disabled")
+    # Pressed while the start is still waiting for its answer: it must work now,
+    # not only look enabled.
     stops = requests_to(ui, "/api/machine/stop")
     stop.click()
     confirm(ui)
     hub.wait_state("idle")
     ui.wait_for_timeout(200)            # the sync API hands page events over only while it runs
     assert len(stops) == 1
+    assert held, "the start was answered before Stop was pressed"
+    # And the start's answer arriving afterwards does not replace or disable it.
     for route in held:
         route.continue_()
+    ui.wait_for_function("() => !('busy' in document.body.dataset)")
+    assert hub.api("GET", "/api/brews").json()[0]["reason"] == "stopped"
+
+
+def test_a_starts_answer_mid_brew_leaves_stop_alone(ui, hub):
+    load_from_page(ui, hub, "long")
+    held = []
+    ui.route("**/api/machine/start", lambda route: held.append(route))
+    ui.get_by_role("button", name="Start brew").click()
+    confirm(ui)
+    ui.wait_for_timeout(300)
+    hub.at_machine("knob_start")
+    hub.wait_state("brewing")
+    handle = ui.locator("#stop").element_handle()
+    for route in held:
+        route.continue_()
+    ui.wait_for_function("() => !('busy' in document.body.dataset)")
+    ui.wait_for_timeout(500)
+    assert handle.evaluate("(e) => e.isConnected && !e.disabled")
+    handle.click()
+    confirm(ui)
+    hub.wait_state("idle")
 
 
 def test_stop_is_the_same_node_through_a_brew(ui, hub):
@@ -275,11 +294,11 @@ def test_both_languages_have_every_word(ui, hub):
         ui.wait_for_selector("#machine .state")
         expect(ui.locator("#tabs")).to_contain_text(tab)
         for hash_ in ("#/recipes", "#/recipes/short", "#/history", "#/console", "#/"):
-            # This route's view, not the last one's: clear the arrival marker,
-            # change the route, and wait for arrive() to set it again.
-            ui.evaluate("() => { delete document.getElementById('view').dataset.enter; }")
+            # This route's view, not the last one's: mark what is shown now,
+            # change the route, and wait until the marked node is gone.
+            ui.evaluate("() => { const v = document.getElementById('view'); if (v.firstElementChild) v.firstElementChild.dataset.stale = '1'; }")
             go(ui, hub, hash_)
-            ui.wait_for_function("() => 'enter' in document.getElementById('view').dataset")
+            ui.wait_for_function("() => !document.querySelector('#view [data-stale]')")
             ui.wait_for_function("() => !document.getElementById('view').innerText.includes(t('loading'))")
             ui.wait_for_timeout(200)
             text = ui.locator("body").inner_text()

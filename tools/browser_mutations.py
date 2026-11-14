@@ -33,10 +33,13 @@ GUARDS = {
         ('{ disabled: busy || !info, on: { click: () => confirmStart(info) } }',
          '{ disabled: !info, on: { click: () => confirmStart(info) } }'),
     ]),
-    "Stop not held behind a start": ("test_stop_is_not_held_behind_a_start", [
+    "Stop not held behind a start (disabled)": ("test_stop_is_not_held_behind_a_start", [
         ('{ id: "stop", class: "danger", disabled: stopping,', '{ id: "stop", class: "danger", disabled: busy || stopping,'),
     ]),
-    "a start's answer does not rebuild the brewing view": ("test_stop_is_not_held_behind_a_start", [
+    "Stop not held behind a start (ignores the press)": ("test_stop_is_not_held_behind_a_start", [
+        ("  if (stopping) return;\n  if (!(await ask(", "  if (stopping || busy) return;\n  if (!(await ask("),
+    ]),
+    "a start's answer does not rebuild the brewing view": ("test_a_starts_answer_mid_brew_leaves_stop_alone", [
         ('brewing ? "" : busy, brewing ? "" : (flash ? flash.text : "")', 'busy, flash ? flash.text : ""'),
     ]),
     "Stop is one node through a brew": ("test_stop_is_the_same_node_through_a_brew", [

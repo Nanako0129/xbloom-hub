@@ -543,12 +543,14 @@ class Machine:
                 raise BadTicket("this start ticket is not the one issued for the loaded recipe")
             if time.monotonic() > issued["expires"]:
                 self._ticket = None
+                self._publish()                 # its load_id goes from every page at once
                 raise BadTicket("the start ticket has expired; cancel and load again")
             if self._cup is False:
                 raise NoCup("the machine reported the cup was taken off")
             # Consumed before anything is sent: a start is never repeated.
             self._ticket = None
             self._started_at = time.monotonic()
+            self._publish()
             try:
                 with gate.start_permit():
                     # Only this task may write 8002, and only inside this
