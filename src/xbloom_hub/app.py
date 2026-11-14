@@ -100,11 +100,18 @@ class ClientNetworks:
                 address = ipaddress.ip_address(client)
             except ValueError:
                 address = None
+            # A dual-stack listener reports an IPv4 client as ::ffff:a.b.c.d.
+            if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+                address = address.ipv4_mapped
             if address is None or not any(address in network for network in self._networks):
                 if scope["type"] == "http":
                     return await JSONResponse({"error": "network_not_allowed"}, 403)(scope, receive, send)
-                return
+                return await send({"type": "websocket.close", "code": 1008})
         return await self._app(scope, receive, send)
+
+
+# This host only: what the hub answers unless told otherwise.
+LOOPBACK = "127.0.0.0/8,::1/128"
 
 
 def parse_networks(text: str) -> list:
@@ -160,6 +167,8 @@ class Guard:
 
 def create_app(machine: Machine, store: RecipeStore, token: str,
                allowed_hosts: list[str], radio=None, brews=None, allowed_networks=None) -> Starlette:
+    # No networks given: this host only. Never "no check".
+    allowed_networks = allowed_networks or parse_networks(LOOPBACK)
     check_allowed_hosts(allowed_hosts)
 
     async def state(request):
@@ -318,10 +327,11 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Mount("/", app=StaticFiles(directory=WEB_DIR, html=True, check_dir=False), name="web"),
         ],
         middleware=[
-            # First: a client outside the allowed networks gets nothing at all.
-            *([Middleware(ClientNetworks, networks=allowed_networks)] if allowed_networks else []),
-            # Refuses a Host header that is not ours: DNS-rebinding protection.
+            # Every response, refusals included, carries the security headers.
             Middleware(SecurityHeaders),
+            # Then a client outside the allowed networks gets nothing at all.
+            Middleware(ClientNetworks, networks=allowed_networks),
+            # Refuses a Host header that is not ours: DNS-rebinding protection.
             Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
             Middleware(Guard, token=token),
         ],

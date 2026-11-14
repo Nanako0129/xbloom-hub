@@ -63,20 +63,9 @@ XBLOOM_RADIO=sim XBLOOM_HUB_TOKEN_FILE=secrets/hub_token uv run xbloom-hub
 brew (default 0.05 s, which is too short to see; the machine stays about
 20 s).
 
-## From another device on the network
-
-By default the hub listens on `127.0.0.1` only. To use the page from a phone:
-
-```sh
-XBLOOM_BIND=0.0.0.0
-XBLOOM_ALLOWED_HOSTS=localhost,127.0.0.1,<the hub's LAN address>,<its .local name>
-```
-
-`XBLOOM_ALLOWED_HOSTS` is the list of names the hub answers to. It must be
-exact: the hub refuses to start with a wildcard or an empty entry, because
-that check is what stops a web page elsewhere from reaching the hub through a
-DNS trick. The connection is plain HTTP, so the token crosses the network
-unencrypted; keep the hub on a network you trust.
+`XBLOOM_ALLOWED_HOSTS` must be exact: the hub refuses to start with a
+wildcard or an empty entry, because that check is what stops a web page
+elsewhere from reaching the hub through a DNS trick.
 
 ## What each part does
 
