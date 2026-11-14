@@ -249,3 +249,16 @@ def test_a_machine_not_heard_from_is_not_called_busy(next_ui, hub):
     assert done.wait(5)
     expect(next_ui.get_by_role("heading", name="Waiting for the machine")).to_be_visible()
     expect(next_ui.locator("#machine .state")).to_contain_text("Not heard from")
+
+
+def test_the_sidebar_stays_in_view_on_a_long_page(next_ui, hub):
+    """On a desktop the sidebar fills the window and stays put while the page
+    scrolls (it once scrolled away: a later `inset: auto` reset its `top`)."""
+    next_ui.set_viewport_size({"width": 1600, "height": 800})
+    next_ui.evaluate("location.hash = '#/recipes/new'")
+    expect(next_ui.locator(".pour-edit").first).to_be_visible()
+    next_ui.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+    next_ui.wait_for_timeout(200)
+    assert next_ui.evaluate("scrollY") > 0, "the page is not long enough to test this"
+    top, bottom = next_ui.evaluate("(() => { const r = document.getElementById('side').getBoundingClientRect(); return [r.top, r.bottom]; })()")
+    assert abs(top) < 1 and abs(bottom - 800) < 1, (top, bottom)
