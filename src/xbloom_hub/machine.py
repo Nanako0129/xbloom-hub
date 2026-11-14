@@ -6,6 +6,7 @@ in the hub asks this object; nothing else touches the radio.
 from __future__ import annotations
 
 import asyncio
+import json
 import datetime
 import hmac
 import logging
@@ -321,6 +322,15 @@ class Machine:
         log.info("brew %s closed (%s)", brew["id"], reason)
         self._brew = None
         self._finished = reason == "finished"
+
+    def open_record(self, brew_id: str) -> dict | None:
+        """The brew still running, as it is now, if that is the one asked for.
+        Its file is written only every CHECKPOINT_S; a page joining mid-brew
+        needs the readings up to this moment."""
+        brew = self._brew
+        if brew is None or brew["id"] != brew_id:
+            return None
+        return json.loads(json.dumps({k: v for k, v in brew.items() if not k.startswith("_")}))
 
     def _save_brew(self) -> None:
         self._brew_saved = time.monotonic()

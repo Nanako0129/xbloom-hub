@@ -733,3 +733,21 @@ def test_each_load_has_its_own_public_id_and_the_ticket_stays_private(tmp_path):
         task.cancel()
 
     asyncio.run(run())
+
+
+
+def test_a_running_brew_is_served_as_it_is_now(tmp_path):
+    """A page joining mid-brew gets the readings up to now, not the last checkpoint."""
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        assert await machine._wait_for(lambda: machine.state == "brewing", 2)
+        brew_id = machine._brew["id"]
+        machine._listener._on_raw({"cmd": 20501, "weight_g": 3.3})
+        record = machine.open_record(brew_id)
+        assert record["samples"]["weight"][-1][1] == 3.3
+        assert not any(key.startswith("_") for key in record)
+        assert machine.open_record("20990101-000000-zzzz") is None
+        task.cancel()
+
+    asyncio.run(run())

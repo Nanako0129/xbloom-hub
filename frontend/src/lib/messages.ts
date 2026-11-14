@@ -4,10 +4,11 @@ export const LANGUAGE_NAMES: Record<string, string> = { "zh-Hant": "繁體中文
 
 export const MESSAGES: Record<string, Record<string, string>> = {
   "zh-Hant": {
-    "next.load_there": "到現行版本載入或刪除", "edit.earlier": "往前移", "edit.later": "往後移",
+    "state.unheard": "等待回報", "home.unheard": "等待機器回報", "home.unheard_hint": "已連上咖啡機，但它還沒說自己在做什麼；通常是在休眠，轉一下旋鈕就會回報。",
+    "next.load_there": "到現行版本載入或刪除", "next.act_there": "到現行版本操作",
+    "next.start_there": "到現行版本開始沖煮", "next.stop_there": "停止在現行版本：到那裡按停止", "edit.earlier": "往前移", "edit.later": "往後移",
     "edit.preview": "預覽：約 {time} 注完，共 {total} ml",
     "chart.hint": "把游標移到圖上看數值；按住 ⌘／Ctrl 滾動或雙指縮放；拖下方滑桿移動；雙擊還原。",
-    "next.elsewhere": "這一頁還在搬到新版介面，目前請用現行版本。", "next.open_current": "在現行版本開啟這一頁",
     "tab.home": "現在", "tab.recipes": "配方", "tab.history": "紀錄", "tab.console": "主控台", "tab.label": "主要分頁",
     "back": "返回",
 
@@ -113,10 +114,11 @@ export const MESSAGES: Record<string, Record<string, string>> = {
   },
 
   en: {
-    "next.load_there": "Load or delete on the current dashboard", "edit.earlier": "Move earlier", "edit.later": "Move later",
+    "state.unheard": "Not heard from", "home.unheard": "Waiting for the machine", "home.unheard_hint": "Connected, but the machine has not said what it is doing yet; it is usually asleep. Turn the knob and it reports.",
+    "next.load_there": "Load or delete on the current dashboard", "next.act_there": "Do this on the current dashboard",
+    "next.start_there": "Start on the current dashboard", "next.stop_there": "Stop is on the current dashboard: press it there", "edit.earlier": "Move earlier", "edit.later": "Move later",
     "edit.preview": "Preview: pours end at about {time}, {total} ml in all",
     "chart.hint": "Point at the chart to read it; pinch or Ctrl-scroll to zoom, drag the slider below to move, double-click to reset.",
-    "next.elsewhere": "This page has not moved to the new dashboard yet; use the current one.", "next.open_current": "Open this page on the current dashboard",
     "tab.home": "Now", "tab.recipes": "Recipes", "tab.history": "History", "tab.console": "Console", "tab.label": "Main sections",
     "back": "Back",
 

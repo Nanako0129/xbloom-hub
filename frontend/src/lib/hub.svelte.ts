@@ -83,6 +83,10 @@ export const hub = $state({
   log: [] as { at: Date; snap: Snapshot }[],
 });
 
+// Others that follow every state as it arrives (the live brew).
+const followers: ((next: Snapshot, before: Snapshot | null) => void)[] = [];
+export function follow(fn: (next: Snapshot, before: Snapshot | null) => void): void { followers.push(fn); }
+
 export function listen(): void {
   const source = new EventSource("/api/events");
   source.onmessage = (event) => {
@@ -94,6 +98,10 @@ export function listen(): void {
       if (hub.log.length > 200) hub.log.shift();
     }
     hub.state = next;
+    // After the state itself: a follower that fails must not hold it back.
+    for (const fn of followers) {
+      try { fn(next, before); } catch (error) { console.error("a state follower failed", error); }
+    }
   };
   source.onerror = () => { hub.reachable = false; };
 }

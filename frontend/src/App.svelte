@@ -2,17 +2,17 @@
   import { hub, listen } from "./lib/hub.svelte";
   import { route } from "./lib/route.svelte";
   import { t } from "./lib/i18n.svelte";
-  import { stateName, stateDetail } from "./lib/words";
+  import { stateLabel, stateDetail, unheard } from "./lib/words";
   import Icon from "./components/Icon.svelte";
   import MachineCard from "./components/MachineCard.svelte";
   import Console from "./pages/Console.svelte";
-  import Elsewhere from "./pages/Elsewhere.svelte";
   import History from "./pages/History.svelte";
   import Brew from "./pages/Brew.svelte";
   import Compare from "./pages/Compare.svelte";
   import Recipes from "./pages/Recipes.svelte";
   import Recipe from "./pages/Recipe.svelte";
   import RecipeEdit from "./pages/RecipeEdit.svelte";
+  import Home from "./pages/Home.svelte";
 
   listen();
 
@@ -26,7 +26,7 @@
 
   const current = $derived(route.current.name === "compare" ? "history" : route.current.name);
   const s = $derived(hub.state);
-  const statusText = $derived(!hub.reachable && s ? t("status.no_hub") : s ? stateName(s.state) : t("status.connecting"));
+  const statusText = $derived(!hub.reachable && s ? t("status.no_hub") : s ? stateLabel(s) : t("status.connecting"));
   const statusDetail = $derived(s && hub.reachable ? stateDetail(s) : "");
 
   let view: HTMLElement;
@@ -55,12 +55,14 @@
 
 <div id="main">
   <header id="status" aria-live="polite">
-    <span id="status-lamp" class="lamp" data-state={hub.reachable ? s?.state : "offline"}></span>
+    <span id="status-lamp" class="lamp" data-state={!hub.reachable ? "offline" : s && unheard(s) ? "unheard" : s?.state}></span>
     <span id="status-text">{statusText}</span>
     <span id="status-detail">{statusDetail}</span>
   </header>
   <main id="view" tabindex="-1" bind:this={view}>
-    {#if route.current.name === "console"}
+    {#if route.current.name === "home"}
+      <Home />
+    {:else if route.current.name === "console"}
       <Console />
     {:else if route.current.name === "history" && route.current.id}
       {#key route.current.id}<Brew id={route.current.id} />{/key}
@@ -80,8 +82,6 @@
       {/key}
     {:else if route.current.name === "compare"}
       {#key route.hash}<Compare ids={route.current.ids ?? []} />{/key}
-    {:else}
-      <Elsewhere title={t(`tab.${current}`)} />
     {/if}
   </main>
 </div>
