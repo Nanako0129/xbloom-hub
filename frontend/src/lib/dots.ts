@@ -11,6 +11,11 @@ export const DOT_ICONS: Record<string, string> = {
   // right, and two rows of steam whose dots alternate between frame a and
   // frame b, one column apart, so the steam sways.
   cup: "0baba00 0abab00 1111110 1000011 1000011 1000011 0111100",
+  // Replay controls, in the machine's own dots.
+  play: "10000 11000 11100 11110 11100 11000 10000",
+  pause: "11011 11011 11011 11011 11011 11011 11011",
+  check: "0000000 0000001 0000010 1000100 0101000 0010000 0000000",
+  grip: "101 000 101 000 101",
   // Water falling: three columns of drops; each row lights in turn.
   pour: "01010 10101 01010 10101 01010 10101 01010",
 };

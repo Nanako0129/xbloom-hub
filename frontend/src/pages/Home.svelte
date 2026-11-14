@@ -7,7 +7,7 @@
   import { live } from "../lib/live.svelte";
   import { clock, whole, when, endingText } from "../lib/format";
   import { reasonText, cupText, tankText, unheard } from "../lib/words";
-  import { planLine, pourStarts, recordName, type BrewRecord, type BrewSummary } from "../lib/records";
+  import { eventMarks, planLine, recordName, startMarks, startsByIndex, type BrewRecord, type BrewSummary } from "../lib/records";
   import type { LibraryEntry, RecipeInfo } from "../lib/recipes";
   import Chart, { type Line } from "../components/Chart.svelte";
   import Icon from "../components/Icon.svelte";
@@ -64,6 +64,7 @@
     const total = info?.recipe.pours.length;
     return total ? t("brew.pour_of", { n: brew.pour + 1, total }) : t("brew.pour", { n: brew.pour + 1 });
   });
+  const liveMarks = $derived(startMarks(Object.entries(live.startAt).map(([i, time]) => [Number(i), time] as [number, number])));
   const liveLines = $derived.by((): Line[] => {
     const out: Line[] = [];
     if (info) out.push({ key: "plan", kind: "plan", label: t("chart.plan"), points: planLine(info.plan) });
@@ -115,7 +116,7 @@
   </div>
   <div class="cols">
     <div>
-      <Chart lines={liveLines} marks={live.marks} live />
+      <Chart lines={liveLines} marks={liveMarks} live />
       <!-- Not held behind another request, and the same element for the whole brew. -->
       <div class="actions">
         <button id="stop" class="danger" disabled={work.stopping}
@@ -123,7 +124,7 @@
           {t("action.stop")}</button>
       </div>
     </div>
-    {#if info}<div class="wide-only"><PoursList plan={info.plan} pours={info.recipe.pours} current={s.brew.pour ?? null} /></div>{/if}
+    {#if info}<div><PoursList plan={info.plan} pours={info.recipe.pours} current={s.brew.pour ?? null} water={s.water_ml} starts={live.startAt} /></div>{/if}
   </div>
 
 {:else if name === "armed" && s.recipe}
@@ -170,7 +171,7 @@
       <Readout value={whole(lastValue(finishedRecord.samples.water))} label={t("readout.water")} series="water" />
       <Readout value={whole(lastValue(finishedRecord.samples.weight))} label={t("readout.coffee")} series="coffee" />
     </div>
-    <section class="card"><Chart lines={recordLines(finishedRecord)} marks={pourStarts(finishedRecord)} /></section>
+    <section class="card"><Chart lines={recordLines(finishedRecord)} marks={eventMarks(finishedRecord)} /></section>
     <p><a href="#/history/{encodeURIComponent(finishedRecord.id)}">{t("home.open")}</a></p>
   {/if}
 

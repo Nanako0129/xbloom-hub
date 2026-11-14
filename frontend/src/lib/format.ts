@@ -13,3 +13,8 @@ export const when = (iso: string | null | undefined): string => {
 };
 export const endingText = (code: string | null | undefined): string =>
   !code ? t("ending.running") : MESSAGES.en[`ending.${code}`] ? t(`ending.${code}`) : code;
+
+// A date on this device's calendar as YYYY-MM-DD, what a date input holds.
+// The history's filters and its calendar key their days with this one function.
+export const dayKey = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

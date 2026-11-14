@@ -11,6 +11,7 @@
   import Slider from "../components/Slider.svelte";
   import Choice from "../components/Choice.svelte";
   import Switch from "../components/Switch.svelte";
+  import Icon from "../components/Icon.svelte";
 
   // slug: the recipe being edited, or null for a new one; from: a recipe to start a new one from.
   let { slug, from }: { slug: string | null; from: string | null } = $props();
@@ -52,13 +53,22 @@
   const target = $derived(draft ? Math.round((Number(draft.dose_g) || 0) * (Number(draft.ratio) || 0) * 10) / 10 : 0);
   const preview = $derived(draft ? previewPlan(draft.pours) : null);
 
-  function move(index: number, by: number) {
-    if (!draft) return;
-    const to = index + by;
-    if (to < 0 || to >= draft.pours.length) return;
-    const [pour] = draft.pours.splice(index, 1);
+  // Reorder: the ↑/↓ buttons (keyboard) and dragging a card (pointer) both come here.
+  function reorder(from: number, to: number) {
+    if (!draft || from === to || to < 0 || to >= draft.pours.length) return;
+    const [pour] = draft.pours.splice(from, 1);
     draft.pours.splice(to, 0, pour);
   }
+  const move = (index: number, by: number) => reorder(index, index + by);
+
+  // Native drag and drop. A card is draggable only while the pointer is over its
+  // background: pressed on a slider, button or field it must keep its own job
+  // (dragging a slider would otherwise carry the whole card away). Decided when
+  // the pointer moves over, not when it goes down: the browser has chosen what a
+  // press may drag by then.
+  const CONTROLS = "input, button, label, select, textarea";
+  let dragging = $state<number | null>(null);
+  let over = $state<number | null>(null);
 
   async function save() {
     if (!draft || saving) return;
@@ -148,8 +158,15 @@
       </div>
       <ol class="pours-edit">
         {#each draft.pours as pour, i (pour)}
-          <li class="pour-edit">
-            <div class="pour-head"><span class="n">{i + 1}</span><span class="num muted">{share(pour.volume_ml)}%</span></div>
+          <li class="pour-edit" class:dragging={dragging === i}
+            class:over-above={over === i && dragging !== null && dragging > i} class:over-below={over === i && dragging !== null && dragging < i}
+            onpointerover={(event) => { event.currentTarget.draggable = !(event.target as Element).closest(CONTROLS); }}
+            ondragstart={(event) => { dragging = i; if (event.dataTransfer) { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", String(i)); } }}
+            ondragover={(event) => { if (dragging === null) return; event.preventDefault(); over = i; }}
+            ondrop={(event) => { event.preventDefault(); if (dragging !== null) reorder(dragging, i); dragging = over = null; }}
+            ondragend={(event) => { event.currentTarget.draggable = false; dragging = over = null; }}>
+            <div class="pour-head"><span class="n">{i + 1}</span><span class="num muted">{share(pour.volume_ml)}%</span>
+              <span class="grip" role="img" aria-label={t("edit.drag")} title={t("edit.drag")}><Icon name="grip" /></span></div>
             <div class="sliders">
               <Slider label={t("edit.volume_short")} unit="ml" min={1} max={240} step={1} bind:value={pour.volume_ml} />
               <Slider label={t("edit.temperature_short")} unit="°C" min={20} max={98} step={1} bind:value={pour.temperature_c} />

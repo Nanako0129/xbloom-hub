@@ -84,7 +84,7 @@ html { scroll-padding-bottom: calc(var(--tabs) + 24px + env(safe-area-inset-bott
 body { min-height: 100dvh; padding-bottom: calc(var(--tabs) + 24px + env(safe-area-inset-bottom)); }
 
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+h1 { overflow-wrap: anywhere; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
 h2 { font-size: 1.0625rem; font-weight: 600; }
 a { color: var(--tint); text-decoration: none; }
 .muted { color: var(--muted); }
@@ -165,7 +165,7 @@ button.danger:hover { background: #ff6b5f; }
 button.danger:active { background: var(--stop-press); }
 button:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 button .icon { width: 18px; height: 18px; }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [role="button"]:focus-visible {
   outline: 3px solid rgba(224, 164, 88, 0.55); outline-offset: 2px; }
 
 .icon { display: inline-flex; width: 22px; height: 22px; flex: none; }
@@ -175,6 +175,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 select { font: inherit; color: var(--text); background: var(--fill);
   border: 0; border-radius: var(--r-small); padding: 8px 12px; }
+input[type="date"] { color-scheme: dark; min-height: 42px; }
 
 /* ---- lists (grouped, inset) ----------------------------------------------- */
 .list { list-style: none; margin: 0; padding: 0 18px; background: var(--card); border-radius: var(--r-card); }
@@ -211,7 +212,7 @@ a.recipe svg.bar { display: block; width: 100%; height: 8px; margin-top: 14px; b
 .pours .detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; font-size: 0.9375rem; }
 .pours .when { grid-column: 1 / -1; color: var(--muted); font-size: 0.8125rem; }
 .pours li[data-now="true"] .share { color: var(--water); }
-.pours li[data-done="true"] { opacity: 0.45; }
+.pours li[data-done="true"] > :not(.live) { opacity: 0.45; }   /* what is finished recedes; its done mark and its timing stay plain */
 
 /* ---- chart ------------------------------------------------------------------ */
 .chart { background: var(--card); border-radius: var(--r-card); padding: 16px 10px 8px; }
@@ -362,7 +363,7 @@ button.small { min-height: 38px; padding: 0 14px; font-size: 0.875rem; flex: non
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 0.8125rem; color: var(--muted); }
 .field.wide { grid-column: 1 / -1; }
-input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"], textarea { font: inherit; font-size: 1rem; color: var(--text);
+input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"], input[type="date"], textarea { font: inherit; font-size: 1rem; color: var(--text);
   background: var(--fill); border: 0; border-radius: var(--r-small); padding: 10px 12px; min-width: 0; width: 100%;
   box-sizing: border-box; }
 textarea { resize: vertical; }
@@ -515,7 +516,7 @@ dialog::backdrop { animation: fade var(--settle) ease both; -webkit-backdrop-fil
 .chart.echart { padding: 16px 12px 12px; }
 .echart-canvas { width: 100%; height: var(--chart-height); }
 :root { --chart-height: 320px; }        /* tall enough to read two curves on a phone */
-@media (min-width: 1800px) { :root { --chart-height: 440px; } }
+@media (min-width: 1800px) { :root { --chart-height: clamp(440px, 46vh, 700px); } }   /* grows with a tall display, so the chart is not a strip above empty ground */
 .chart .reading { display: flex; flex-wrap: wrap; gap: 4px 16px; min-height: 1.5em; margin-top: 6px;
   font-size: 0.9375rem; color: var(--text); }
 .chart .reading .time { color: var(--muted); }
@@ -617,3 +618,90 @@ button.choice-item svg { width: 34px; height: 34px; fill: none; stroke: currentC
 /* The logo beside the name in the sidebar. */
 #side .brand { display: flex; align-items: center; gap: 10px; }
 #side .brand img { width: 28px; height: 28px; border-radius: 7px; flex: none; }
+
+/* ==== batch 2: replay, marks, history, calendar, drag, per-pour progress ======= */
+:root {
+  --spark-w: 64px; --spark-h: 22px;           /* a history row's curve (the drawing's 64:22 shape): a phone row has no room for more */
+  --cal-lit-1: 0.32; --cal-lit-2: 0.55; --cal-lit-3: 0.8; --cal-lit-4: 1;   /* a calendar day's glow by brews that day */
+  --cal-in-step: 14ms;                        /* each week's column lights this much after the one before it */
+  --bar-height: 8px;                          /* the pour progress bar: a clear thin line, not a block */
+  --pour-live: var(--water);                  /* the pour being poured, as the water curve */
+}
+@media (min-width: 1040px) { :root { --spark-w: 96px; --spark-h: 33px; } }
+@media (min-width: 1800px) { :root { --spark-w: 136px; --spark-h: 47px; } }
+
+@keyframes dot-in { from { opacity: 0; transform: scale(0.3); } }
+
+/* ---- replay ---- */
+.replay { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 0 4px; }
+.replay .num { white-space: nowrap; font-size: 0.875rem; }
+button.play { flex: none; min-height: 40px; width: 48px; padding: 0; }
+button.play .icon { width: 16px; height: 16px; }
+.scrub { flex: 1 1 auto; min-width: 0; height: 28px; margin: 0; accent-color: var(--tint); cursor: ew-resize; }
+
+/* ---- the marks of events on a chart ---- */
+.chart .reading .mark-name { color: var(--text); font-weight: 600; }
+.chart .legend .key-mark { display: inline-flex; align-items: center; min-height: 32px; color: var(--muted); font-size: 0.8125rem; }
+.chart .legend .key-mark i { width: 0; height: 12px; margin-right: 7px; border-top: 0; border-left: 2px solid; border-radius: 0; }
+.chart .key-mark .mark-start { border-left-style: dotted; border-color: var(--muted); }
+.chart .key-mark .mark-end { border-left-style: solid; border-color: var(--water); }
+.chart .key-mark .mark-rezero { border-left-style: dashed; border-color: var(--coffee); }
+.chart .legend .key.zoomed { color: var(--tint); border-color: currentColor; }
+
+/* ---- history ---- */
+.card.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.card.filters > * { margin-top: 0; }
+.filters .row.wide { grid-column: 1 / -1; align-items: center; }
+.filters button.small { width: auto; margin-top: 0; }
+.filters select { width: 100%; min-height: 42px; }
+.history-aside > .card + .card { margin-top: 20px; }
+@media (min-width: 1040px) {
+  .history > .history-aside { order: 2; position: sticky; top: 24px; }
+  .history > .history-aside, .history > div { min-width: 0; }
+}
+.history .list a { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title spark more" "sub spark more";
+  align-items: center; column-gap: 14px; row-gap: 2px; }
+.history .list a .title { grid-area: title; }
+.history .list a .sub { grid-area: sub; white-space: normal; }
+.history .list a::after { grid-area: more; margin-left: -6px; }
+.spark { grid-area: spark; width: var(--spark-w); height: var(--spark-h); display: block; overflow: visible; }
+.spark path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.spark .base { stroke: var(--hairline); stroke-width: 1; }
+.spark .line { stroke: var(--water); stroke-width: 1.7; stroke-dasharray: 1; stroke-dashoffset: 0; }
+#view[data-enter] .spark .line { animation: draw var(--draw) ease-out both; }
+.list a:hover .spark .line { stroke: var(--tint); }
+
+/* ---- the calendar ---- */
+.cal { display: block; width: 100%; height: auto; }
+.cal .month { fill: var(--muted); }
+.cal .d { fill: var(--dot-off); transform-box: fill-box; transform-origin: center;
+  transition: fill var(--quick), transform var(--quick) var(--ease); }
+.cal .d[role="button"] { fill: var(--coffee); cursor: pointer; outline: none; }
+.cal .l1 { fill-opacity: var(--cal-lit-1); } .cal .l2 { fill-opacity: var(--cal-lit-2); }
+.cal .l3 { fill-opacity: var(--cal-lit-3); } .cal .l4 { fill-opacity: var(--cal-lit-4); }
+.cal .d:hover, .cal .d:focus-visible { transform: scale(1.4); }
+.cal .d:focus-visible { stroke: var(--text); stroke-width: 0.1; }
+.cal .d.sel { stroke: var(--text); stroke-width: 0.12; }
+/* backwards, not both: after it has run, hover's transform must win again. */
+#view[data-enter] .cal .d { animation: dot-in var(--settle) var(--ease) backwards; animation-delay: calc(var(--col) * var(--cal-in-step)); }
+.cal-read { margin-top: 10px; min-height: 2.9em; font-size: 0.875rem; }
+
+/* ---- reordering pours by dragging ---- */
+.pour-edit { transition: opacity var(--quick), box-shadow var(--quick); }
+.pour-edit.dragging { opacity: 0.4; }
+.pour-edit.over-above { box-shadow: 0 -4px 0 var(--tint); }
+.pour-edit.over-below { box-shadow: 0 4px 0 var(--tint); }
+.pour-head { cursor: grab; }
+.pour-head .grip { margin-left: auto; width: 14px; height: 22px; color: var(--faint); display: inline-flex; align-items: center; }
+.pour-head .grip svg { width: 100%; height: auto; fill: currentColor; }
+.pour-edit:active .pour-head { cursor: grabbing; }
+
+/* ---- the pour being poured: its progress, and how far its start was from the plan ---- */
+.pours .live { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; }
+.pours .bar { flex: 1 1 auto; height: var(--bar-height); border-radius: 999px; background: var(--hairline); overflow: hidden; }
+.pours .bar i { display: block; height: 100%; border-radius: inherit; background: var(--pour-live); transform: scaleX(var(--p, 0));
+  transform-origin: left center; transition: transform var(--quick) linear; }
+.pours .diff { flex: none; color: var(--muted); font-size: 0.875rem; }
+.pours .done-mark { display: inline-flex; width: 18px; height: 18px; color: var(--ok); }
+.pours .done-mark svg { width: 100%; height: 100%; fill: currentColor; }
+.pours li[data-now="true"] { background: linear-gradient(90deg, var(--glow-cool), transparent 60%); margin: 0 -18px; padding-left: 18px; padding-right: 18px; }

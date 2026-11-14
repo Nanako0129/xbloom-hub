@@ -2,8 +2,14 @@
   import { api } from "../lib/hub.svelte";
   import { t } from "../lib/i18n.svelte";
   import { clock, when, endingText } from "../lib/format";
-  import { planLine, pourStarts, recordName, type BrewRecord } from "../lib/records";
+  import { eventMarks, planLine, pourStarts, recordName, type BrewRecord } from "../lib/records";
   import Chart, { type Line } from "../components/Chart.svelte";
+  import Icon from "../components/Icon.svelte";
+
+  const REPLAY_SPEED = 4;       // a replay runs at this many times real speed: a 3 minute brew in 45 s
+  const SCRUB_STEP = 0.1;       // the scrubber's resolution, seconds
+  // Under reduced motion nothing plays by itself: the scrubber alone moves the replay.
+  const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let { id }: { id: string } = $props();
   let record = $state<BrewRecord | null>(null);
@@ -28,6 +34,29 @@
     out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: record.samples.weight });
     return out;
   });
+  const marks = $derived(record ? eventMarks(record) : []);
+
+  // ---- replay: the curves redrawn up to a moment ------------------------------
+  const span = $derived(record ? Math.max(record.duration_s ?? 0, ...record.samples.water.map((p) => p[0]),
+    ...record.samples.weight.map((p) => p[0])) : 0);
+  let replayAt = $state<number | null>(null);       // null: no replay, the whole brew is drawn
+  let playing = $state(false);
+  let frame = 0, lastFrame = 0;
+  function tick(now: number) {
+    replayAt = Math.min(span, (replayAt ?? 0) + ((now - lastFrame) / 1000) * REPLAY_SPEED);
+    lastFrame = now;
+    if (replayAt >= span) { playing = false; replayAt = null; return; }    // the end: the whole brew again
+    frame = requestAnimationFrame(tick);
+  }
+  function play() {
+    if (replayAt === null || replayAt >= span) replayAt = 0;
+    playing = true;
+    lastFrame = performance.now();
+    frame = requestAnimationFrame(tick);
+  }
+  function pause() { playing = false; cancelAnimationFrame(frame); }
+  $effect(() => { id; replayAt = null; return pause; });      // another brew, or leaving the page: stop
+
   const last = (points: [number, number][]) => (points.length ? Math.round(points[points.length - 1][1]) : null);
   const rows = $derived(record?.plan ? record.plan.pours.map((p, i) => {
     const actual = starts[i] === undefined ? null : starts[i] - offset;
@@ -45,7 +74,19 @@
 {:else}
   <h1>{recordName(record)}</h1>
   <div class="cols">
-    <div><Chart {lines} marks={starts} /></div>
+    <div>
+      <Chart {lines} {marks} upto={replayAt}>
+        <div class="replay">
+          {#if !reduced}
+            <button type="button" class="quiet play" aria-label={playing ? t("replay.pause") : t("replay.play")}
+              onclick={() => (playing ? pause() : play())}><span class="icon"><Icon name={playing ? "pause" : "play"} /></span></button>
+          {/if}
+          <input type="range" class="scrub" min="0" max={span} step={SCRUB_STEP} value={replayAt ?? span}
+            aria-label={t("replay.scrub")} oninput={(event) => { const at = Number(event.currentTarget.value); replayAt = at >= span ? null : at; }} />
+          <span class="num muted">{clock(replayAt ?? span)} / {clock(span)}</span>
+        </div>
+      </Chart>
+    </div>
     <div>
       <section class="card">
         <dl class="facts">
