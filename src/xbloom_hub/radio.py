@@ -2,9 +2,53 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 from . import gate
+
+log = logging.getLogger(__name__)
+STALE_CHECK_S = 10
+
+
+async def drop_stale_links(host: str, noise_psk: str, client_class=None) -> int:
+    """Disconnect every link the proxy holds, before this hub takes it.
+
+    Only the hub uses the proxy, so at start any link it holds was left by a
+    hub that stopped without closing it (the phone proxy keeps a link when
+    its API client goes). The machine, still connected, stops advertising and
+    a new hub never finds it: seen three times on 2026-11-14 after restarts.
+    Returns how many were dropped; a failure is logged and the hub goes on.
+    """
+    if client_class is None:
+        from aioesphomeapi import APIClient as client_class
+    client = client_class(host, 6053, None, noise_psk=noise_psk)
+    try:
+        await asyncio.wait_for(client.connect(login=True), STALE_CHECK_S)
+        got = asyncio.get_running_loop().create_future()
+
+        def on_free(free, limit, allocated) -> None:
+            if not got.done():
+                got.set_result(list(allocated))
+
+        unsubscribe = client.subscribe_bluetooth_connections_free(on_free)
+        try:
+            allocated = await asyncio.wait_for(got, STALE_CHECK_S)
+            for address in allocated:
+                await client.bluetooth_device_disconnect(address)
+        finally:
+            unsubscribe()
+        if allocated:
+            log.info("dropped %d link(s) a previous hub left on the proxy", len(allocated))
+        return len(allocated)
+    except Exception as err:   # never a reason not to start
+        log.warning("could not check the proxy for stale links: %s", type(err).__name__)
+        return 0
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
 
 
 def _is_xbloom(device, adv) -> bool:
@@ -31,6 +75,7 @@ class ProxyRadio:
 
         await habluetooth.BluetoothManager().async_setup()
         gate.install()
+        await drop_stale_links(self._config["address"], self._config["noise_psk"])
         # Reconnects to the proxy by itself and re-registers its scanner.
         self._conn = APIConnectionManager(self._config)
         await self._conn.start()
