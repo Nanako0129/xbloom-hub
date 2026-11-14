@@ -265,6 +265,27 @@ class RecipeStore:
                         "name": clean_text(name)[:NAME_MAX] if isinstance(name, str) else None})
         return out
 
+    def library(self) -> list[dict]:
+        """Each recipe with what a card shows: dose, ratio, water as sent, the
+        pours' volumes and temperatures, and the planned length. A file that
+        does not pass the check is listed by name with `valid: false`."""
+        out = []
+        for entry in self.list():
+            try:
+                recipe = self.get(entry["slug"])
+                timeline = plan(recipe)
+                out.append({
+                    **entry, "valid": True, "dose_g": recipe["dose_g"], "ratio": recipe["ratio"],
+                    "grind": recipe["grind"], "grind_size": recipe["grind_size"],
+                    "total_ml": timeline["total_ml"], "pour_end_s": timeline["pour_end_s"],
+                    "pours": [{"volume_ml": p["volume_ml"], "temperature_c": p["temperature_c"]}
+                              for p in timeline["pours"]],
+                    "bean": (recipe.get("meta") or {}).get("bean") or None,
+                })
+            except RecipeInvalid:
+                out.append({**entry, "valid": False})
+        return out
+
     def get(self, slug: str) -> dict | None:
         """The checked recipe, or None. A file that no longer passes is refused."""
         path = self._path(slug)

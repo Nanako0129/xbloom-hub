@@ -475,4 +475,15 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
     # All interface text lives in i18n.js: none in the script or the markup.
     han = re.compile(r"[\u4e00-\u9fff]")
     assert not han.search(script) and not han.search(html)
-    assert not re.search(r">\s*[A-Za-z][^<]*<", html.split("<body>")[1])
+    # ... except the product's name, which is a name and is not translated.
+    body = html.split("<body>")[1].replace(">xbloom hub<", "><")
+    assert not re.search(r">\s*[A-Za-z][^<]*<", body)
+
+
+def test_library_lists_what_a_card_shows_and_survives_a_bad_file(client, tmp_path):
+    (tmp_path / "recipes" / "broken.yaml").write_text("name: Broken\ndose_g: 99\n")
+    library = {r["slug"]: r for r in client.get("/api/library").json()}
+    assert library["test"]["valid"] is True and library["test"]["total_ml"] == 100
+    assert [p["volume_ml"] for p in library["test"]["pours"]] == [60, 40]
+    assert library["test"]["ratio"] == "1:20" and library["test"]["pour_end_s"] > 0
+    assert library["broken"] == {"slug": "broken", "name": "Broken", "valid": False}

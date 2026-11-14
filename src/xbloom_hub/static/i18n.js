@@ -50,6 +50,8 @@ const MESSAGES = {
     "home.ready": "可以沖了", "home.asleep": "機器休眠中",
     "home.pick": "選一份食譜", "home.open": "看內容", "home.all_recipes": "全部食譜",
     "recipes.empty": "還沒有食譜。在 Claude Code 裡請它為你的豆子設計一份，存檔後會出現在這裡。",
+    "home.last_brew": "上一次沖煮", "card.machine": "咖啡機", "card.plan": "預定的注水",
+    "library.line": "{dose} g　{ratio}　{total} ml　{time}", "library.invalid": "這份食譜的格式不符，無法使用",
 
     "readout.grind": "研磨", "readout.ratio": "粉水比", "readout.waiting": "等待開始",
     "readout.time": "時間", "readout.water": "水 ml", "readout.coffee": "咖啡 g",
@@ -136,6 +138,8 @@ const MESSAGES = {
     "home.ready": "Ready to brew", "home.asleep": "The machine is asleep",
     "home.pick": "Choose a recipe", "home.open": "Open", "home.all_recipes": "All recipes",
     "recipes.empty": "No recipes yet. Ask Claude Code to design one for your coffee; it appears here once saved.",
+    "home.last_brew": "Last brew", "card.machine": "Machine", "card.plan": "Planned pours",
+    "library.line": "{dose} g   {ratio}   {total} ml   {time}", "library.invalid": "This recipe does not pass the check and cannot be used",
 
     "readout.grind": "Grind", "readout.ratio": "Ratio", "readout.waiting": "Waiting to start",
     "readout.time": "Time", "readout.water": "Water ml", "readout.coffee": "Coffee g",

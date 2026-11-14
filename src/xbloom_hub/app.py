@@ -137,6 +137,9 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
     async def recipe_list(request):
         return JSONResponse(store.list())
 
+    async def library(request):
+        return JSONResponse(store.library())
+
     async def recipe_item(request):
         slug = request.path_params["slug"]
         if request.method == "GET":
@@ -243,6 +246,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/state", state),
             Route("/api/events", events),
             Route("/api/recipes", recipe_list),
+            Route("/api/library", library),
             Route("/api/recipes/{slug}", recipe_item, methods=["GET", "PUT", "DELETE"]),
             Route("/api/recipes/{slug}/plan", recipe_plan),
             Route("/api/gate", gate_recent),
