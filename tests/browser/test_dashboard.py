@@ -306,3 +306,19 @@ def test_both_languages_have_every_word(ui, hub):
                 text = text.replace(planted, "")
             # A key shown instead of its text, such as "home.ready".
             assert not re.search(r"\b[a-z]+\.[a-z_]+\b", text.replace("example.com", "")), (language, hash_)
+
+
+
+def test_a_new_recipe_never_replaces_a_broken_hand_made_file(ui, hub):
+    import pathlib
+    store_dir = pathlib.Path(hub.machine._brews._dir).parent / "recipes"     # the fixture's data directory
+    (store_dir / "handmade.yaml").write_text("not: a recipe\n")
+    go(ui, hub, "#/recipes")
+    ui.get_by_role("link", name="New recipe").click()
+    texts = ui.locator(".form input[type='text']")
+    expect(texts.first).to_be_visible()
+    texts.nth(0).fill("Would replace")
+    texts.nth(1).fill("handmade")
+    ui.get_by_role("button", name="Save").click()
+    expect(ui.get_by_text("in_use")).to_be_visible()
+    assert (store_dir / "handmade.yaml").read_text() == "not: a recipe\n"

@@ -814,7 +814,11 @@ async function viewRecipeEdit(view, slug, from) {
       // A new recipe gets an id of its own: well formed, not the word this
       // page uses for "new", and not one that is already taken.
       const taken = /^[a-z0-9][a-z0-9-]{0,63}$/.test(target) && target !== "new"
-        ? await api("GET", `/api/recipes/${encodeURIComponent(target)}`).then(() => true, (error) => { if (error.code === "not_found") return false; throw error; })
+        ? await api("GET", `/api/recipes/${encodeURIComponent(target)}`).then(() => true, (error) => {
+          if (error.code === "not_found") return false;
+          if (error.code === "recipe_invalid") return true;     // a file is there, just not a usable recipe
+          throw error;
+        })
         : null;
       if (taken !== false) {
         editing.errors = { slug: taken ? "in_use" : "bad_slug" };
@@ -825,9 +829,11 @@ async function viewRecipeEdit(view, slug, from) {
     const body = { ...draft, ratio: `1:${draft.ratio}`, pours: draft.pours.map((pour) => ({ ...pour })) };
     if (Object.keys(meta).length) body.meta = meta; else delete body.meta;
     try {
-      await api("PUT", `/api/recipes/${encodeURIComponent(target)}`, body);
+      // A new recipe is created only where no file is: the hub refuses
+      // otherwise, also for a hand-made file the check above cannot see.
+      await api("PUT", `/api/recipes/${encodeURIComponent(target)}${slug ? "" : "?create=1"}`, body);
     } catch (error) {
-      editing.errors = error.fields || { [error.code || "error"]: error.message };
+      editing.errors = error.code === "recipe_exists" ? { slug: "in_use" } : error.fields || { [error.code || "error"]: error.message };
       throw error;
     }
     editing = null; library = null; plans.delete(target);
