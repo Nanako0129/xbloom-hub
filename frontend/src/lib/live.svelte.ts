@@ -10,19 +10,30 @@ export const live = $state({
   marks: [] as number[],
   startAt: {} as Record<number, number>,     // when each pour (by its index) was seen to start, seconds into the brew
   lastPour: null as number | null,
+  lastSeen: null as number | null,           // the brew time of the last report this page got
+  gaps: [] as [number, number][],            // spans the hub itself heard nothing (its link was down)
 });
+// Reports come several times a second; a longer silence means this page missed
+// some (a phone put the page in the background, the stream reconnected).
+const MISSED_S = 3;
 
 const JOINED_LATE_S = 2;     // a brew this far along when first seen was running before the page
 
+// The hub's record of the running brew is the whole truth up to now: take it,
+// and keep only what this page heard after the record's last reading.
 async function backfill(id: string): Promise<void> {
   let record: BrewRecord;
   try { record = await api<BrewRecord>("GET", `/api/brews/${encodeURIComponent(id)}`); } catch { return; }
   if (live.id !== id) return;
-  const first = (points: { 0: number }[]) => (points.length ? points[0][0] : Infinity);
-  live.water = record.samples.water.filter((p) => p[0] < first(live.water)).concat(live.water);
-  live.weight = record.samples.weight.filter((p) => p[0] < first(live.weight)).concat(live.weight);
+  const merged = (recorded: Point[], heard: Point[]) => {
+    const end = recorded.length ? recorded[recorded.length - 1][0] : -Infinity;
+    return recorded.concat(heard.filter((p) => p[0] > end));
+  };
+  live.water = merged(record.samples.water, live.water);
+  live.weight = merged(record.samples.weight, live.weight);
   live.startAt = { ...startsByIndex(record), ...live.startAt };
-  live.marks = pourStarts(record).filter((x) => x < first(live.marks.map((m) => [m]))).concat(live.marks);
+  live.marks = merged(pourStarts(record).map((x) => [x, 0] as Point), live.marks.map((x) => [x, 0] as Point)).map((p) => p[0]);
+  live.gaps = record.gaps ?? [];
 }
 
 follow((next) => {
@@ -30,9 +41,13 @@ follow((next) => {
   if (!brew) return;
   if (live.id !== brew.id) {
     // Joining a brew is not a pour starting: count from the pour it is on.
-    Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], startAt: {}, lastPour: brew.pour });
+    Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], startAt: {}, lastPour: brew.pour,
+                          lastSeen: null, gaps: [] });
     if (brew.elapsed_s > JOINED_LATE_S) backfill(brew.id);
+  } else if (live.lastSeen !== null && brew.elapsed_s - live.lastSeen > MISSED_S) {
+    backfill(brew.id);          // this page missed reports: fill them from the record
   }
+  live.lastSeen = brew.elapsed_s;
   if (next.water_ml !== null) live.water.push([brew.elapsed_s, next.water_ml]);
   if (next.weight_g !== null) live.weight.push([brew.elapsed_s, next.weight_g]);
   // A pour starting is a new pour index; a report without one is not a start.

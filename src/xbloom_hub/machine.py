@@ -52,6 +52,11 @@ CHECKPOINT_S = 10.0
 
 CMD_POUR_START, CMD_FINISHED, CMD_ABANDONED = 40510, 40512, 40513
 CMD_POUR_END = 40511
+# A brew whose link drops is held this long: if the link is back and the
+# machine still brewing, the same record goes on, with the gap marked; the
+# page's chart and its Stop are the same brew's. 2026-11-14: a release in the
+# middle of a brew had cut one cup into two records.
+RESUME_WINDOW_S = 180
 CMD_CUP_ON, CMD_CUP_OFF = 9002, 9008
 CMD_WEIGHT, CMD_WATER, CMD_STATUS = 20501, 40523, 40521
 
@@ -86,6 +91,7 @@ class Machine:
         self._factory = listener_factory
         self._brews = brews                    # BrewStore, or None to keep nothing
         self._brew: dict | None = None         # the open brew record
+        self._suspended: tuple | None = None   # (brew, when) held across a link drop
         self._brew_saved = 0.0
         self._held: dict | None = None         # the loaded recipe, kept until home
         self._started_at: float | None = None  # when the hub last wrote 8002
@@ -208,6 +214,17 @@ class Machine:
                 self._clear_load()
         activity = self._activity
 
+        # A brew held across a link drop, and the machine past it now: it
+        # finished during the gap (the screen after a brew), or it is home or
+        # asleep. Other values (29 is seen on connecting) leave it held.
+        if (self._brew is None and self._suspended is not None and "activity" in decoded
+                and (activity == _FINISHED or activity in _HOME or activity == _ASLEEP)):
+            held = self._take_suspended()
+            if held is not None and activity == _FINISHED:
+                self._resume_brew(held)
+                self._close_brew("finished")
+            # Otherwise its file already says link_lost.
+
         # A brew opens only on what the machine reports.
         if self._brew is None:
             changed = "activity" in decoded and activity != previous
@@ -259,7 +276,39 @@ class Machine:
         # With a colon in the offset: what every browser's Date accepts.
         return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
+    def _suspend_brew(self) -> None:
+        """The link is gone with a brew running: keep it for a reconnect. Its
+        file says link_lost meanwhile, so a hub that dies here leaves it closed."""
+        brew = self._brew
+        gap_from = round(time.monotonic() - brew["_t0"], 2)
+        self._close_brew("link_lost")
+        brew["_gap_from"] = gap_from
+        self._suspended = (brew, time.monotonic())
+        log.info("brew %s held for a reconnect", brew["id"])
+
+    def _take_suspended(self):
+        """The brew held across a link drop, if still within the window."""
+        held, self._suspended = self._suspended, None
+        if held and time.monotonic() - held[1] < RESUME_WINDOW_S:
+            return held[0]
+        return None
+
+    def _resume_brew(self, brew: dict) -> None:
+        brew.setdefault("gaps", []).append([brew.pop("_gap_from"), round(time.monotonic() - brew["_t0"], 2)])
+        brew["reason"] = brew["ended_at"] = brew["duration_s"] = None
+        self._brew = brew
+        self._finished = False
+        self._clear_load()
+        self._started_at = None
+        self._water = None
+        self._save_brew()
+        log.info("brew %s resumed after a gap", brew["id"])
+
     def _open_brew(self, opened_by: str) -> None:
+        resumed = self._take_suspended()
+        if resumed is not None:
+            self._resume_brew(resumed)
+            return
         held = self._held or {}
         hub_started = (self._started_at is not None
                        and time.monotonic() - self._started_at < START_WINDOW_S)
@@ -459,7 +508,7 @@ class Machine:
         finally:
             self._lifecycle = None
             if self._brew is not None:
-                self._close_brew("link_lost")       # before the listener goes: no gap
+                self._suspend_brew()                # before the listener goes: no gap
             self._listener = None
             try:
                 await listener.stop()
@@ -476,7 +525,11 @@ class Machine:
                 self._publish()
 
     async def release(self) -> None:
-        """Drop the link and stay off it, so the phone app can have the machine."""
+        """Drop the link and stay off it, so the phone app can have the machine.
+        Not with a recipe loaded or a brew running: that would cut the brew's
+        record and take its Stop away."""
+        if self.state in ("armed", "brewing"):
+            raise NotReady(f"the link is not released while {self.state}")
         self._released = True
         if self._lifecycle is not None:
             self._lifecycle.put_nowait(("released", {}))

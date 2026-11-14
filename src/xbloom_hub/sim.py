@@ -61,6 +61,10 @@ class SimListener:
         self._ticker: asyncio.Task | None = None
         self._brewing: asyncio.Task | None = None
 
+    # What the machine reports on connecting: home; a test of a link that comes
+    # back in the middle of a brew sets 35 (or 36 for one finished meanwhile).
+    start_activity = 1
+
     async def start(self) -> None:
         self._client = self.client_class()
         await self._client.write_gatt_char(
@@ -69,7 +73,7 @@ class SimListener:
         self._on_raw({"cmd": 40521, "fw_version": "SIM", "mode": "pro", "water_enough": 1,
                       "serial": "SIM0000000000"})
         self._on_raw({"cmd": 20501, "weight_g": self._weight})
-        self._on_raw({"cmd": 8023, "activity": 1})
+        self._on_raw({"cmd": 8023, "activity": self.start_activity})
         self._ticker = asyncio.create_task(self._tick())
 
     async def _tick(self) -> None:

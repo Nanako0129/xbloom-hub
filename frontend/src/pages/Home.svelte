@@ -68,8 +68,8 @@
   const liveLines = $derived.by((): Line[] => {
     const out: Line[] = [];
     if (info) out.push({ key: "plan", kind: "plan", label: t("chart.plan"), points: planLine(info.plan) });
-    out.push({ key: "water", kind: "water", label: t("chart.water"), points: live.water });
-    out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: live.weight });
+    out.push({ key: "water", kind: "water", label: t("chart.water"), points: live.water, gaps: live.gaps });
+    out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: live.weight, gaps: live.gaps });
     return out;
   });
 
@@ -77,8 +77,8 @@
   const finishedRecord = $derived(lastBrew && (!live.id || lastBrew.id === live.id) ? lastBrew : null);
   const lastValue = (points: [number, number][]) => (points.length ? points[points.length - 1][1] : null);
   const recordLines = (record: BrewRecord): Line[] => [
-    { key: "water", kind: "water", label: t("chart.water"), points: record.samples.water },
-    { key: "coffee", kind: "coffee", label: t("chart.coffee"), points: record.samples.weight },
+    { key: "water", kind: "water", label: t("chart.water"), points: record.samples.water, gaps: record.gaps },
+    { key: "coffee", kind: "coffee", label: t("chart.coffee"), points: record.samples.weight, gaps: record.gaps },
   ];
   const totalWater = $derived(recent.reduce((sum, b) => sum + (b.water_ml ?? 0), 0));
 </script>

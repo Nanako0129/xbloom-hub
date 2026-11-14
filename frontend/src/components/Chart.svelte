@@ -16,6 +16,7 @@
     label: string;
     points: [number, number][];
     dashed?: boolean;
+    gaps?: [number, number][];   // spans with no readings: the line breaks there, never a straight jump
   }
   export type { Mark } from "../lib/records";
 </script>
@@ -151,7 +152,7 @@
       toolbox: { show: true, left: -100, top: -100, itemSize: 1, showTitle: false,
         feature: { dataZoom: { show: true, yAxisIndex: "none", filterMode: "none", icon: { zoom: "path://M0,0", back: "path://M0,0" } } } },
       series: drawn.map((line, index) => ({
-        id: line.key, type: "line", showSymbol: false, smooth: false, data: line.points,
+        id: line.key, type: "line", showSymbol: false, smooth: false, data: withGaps(line.points, line.gaps),
         lineStyle: { color: c[line.kind], width: line.kind === "plan" ? PLAN_WIDTH : LINE_WIDTH,
                      type: line.kind === "plan" || line.dashed ? "dashed" : "solid" },
         itemStyle: { color: c[line.kind] },
@@ -204,6 +205,19 @@
     // the middle of a drag: a live or replaying chart redraws many times a second.
     if (SELECTS && !dragging) chart.dispatchAction({ type: "takeGlobalCursor", key: "dataZoomSelect", dataZoomSelectActive: true });
   });
+
+  // A missing value at the start of each gap: ECharts breaks the line there.
+  function withGaps(points: [number, number][], gaps: [number, number][] | undefined): (number | null)[][] {
+    if (!gaps?.length) return points;
+    const out: (number | null)[][] = [];
+    let g = 0;
+    const sorted = [...gaps].sort((a, b) => a[0] - b[0]);
+    for (const point of points) {
+      while (g < sorted.length && point[0] > sorted[g][0]) { out.push([sorted[g][0], null]); g++; }
+      out.push(point);
+    }
+    return out;
+  }
 
   const unit = (line: Line) => (line.kind === "coffee" ? "g" : "ml");
 </script>

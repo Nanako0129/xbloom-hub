@@ -30,8 +30,8 @@
     const out: Line[] = [];
     if (record.plan) out.push({ key: "plan", kind: "plan", label: t("chart.plan"),
       points: planLine(record.plan).map(([x, y]) => [x + offset, y]) });
-    out.push({ key: "water", kind: "water", label: t("chart.water"), points: record.samples.water });
-    out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: record.samples.weight });
+    out.push({ key: "water", kind: "water", label: t("chart.water"), points: record.samples.water, gaps: record.gaps });
+    out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: record.samples.weight, gaps: record.gaps });
     return out;
   });
   const marks = $derived(record ? eventMarks(record) : []);
