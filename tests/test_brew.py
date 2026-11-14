@@ -464,7 +464,7 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
     used |= set(re.findall(r'data-i18n(?:-label)?="([a-z_.]+)"', html))
     assert len(used) > 80 and used <= keys, used - keys
     # Keys built at run time: every value the hub can send has an entry.
-    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "busy", "released")),
+    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released")),
                            ("ending", ("finished", "stopped", "abandoned", "home", "asleep", "link_lost")),
                            ("error", ("unauthorized", "not_ready", "bad_ticket", "no_cup", "recipe_is_loaded",
                                       "recipe_invalid", "machine_refused", "machine_unanswered",
@@ -659,3 +659,29 @@ def test_views_that_fetch_never_paint_directly():
     assert {name for name, _ in views} == {"viewRecipes", "viewRecipe", "viewHistory", "viewBrew", "viewCompare"}
     for name, body in views:
         assert "painter(view)" in body and "show(view" not in body, name
+
+
+def test_as_measured_water_in_thousandths_and_the_screen_after_a_brew(tmp_path):
+    # docs/S3-RESULTS.md: 35 while brewing, 40512, 36 some seconds later, home.
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 40510, "pour_index": 0})
+        raw({"cmd": 40523, "water_ml": 25000.0})
+        assert machine.snapshot()["water_ml"] == 25.0
+        raw({"cmd": 40512})
+        assert machine.state == "finished"                   # the machine still says 35
+        raw({"cmd": 8023, "activity": 36})
+        assert machine.state == "finished"
+        raw({"cmd": 40513})
+        raw({"cmd": 8023, "activity": 1})
+        assert machine.state == "idle"
+        assert len(brews.list()) == 1
+        record = brews.get(brews.list()[0]["id"])
+        assert record["reason"] == "finished" and record["samples"]["water"][-1][1] == 25.0
+        task.cancel()
+
+    asyncio.run(run())

@@ -21,9 +21,15 @@ log = logging.getLogger(__name__)
 _HOME = {1, 65}
 _RECIPE_READY = 31
 _ASLEEP = 10
-# What xbloom-py and the Home Assistant integration report for grinding and
-# brewing. Not yet seen by this project on its own machine.
-_BREWING = 34
+# 35 is what this machine reported for a whole brew with the grinder off
+# (docs/S3-RESULTS.md). 34 is what xbloom-py and the Home Assistant
+# integration name for grinding and brewing; not yet seen here.
+_BREWING = {34, 35}
+# The screen the machine shows after a brew, for about 20 s, before home.
+_FINISHED = 36
+# The machine reports water in thousandths of a millilitre (25 ml arrived as
+# 25000.0; the official app divides by 1000 as well).
+WATER_UNITS_PER_ML = 1000
 # Values known to be something other than a brew: home, asleep, after the
 # handshake, tare, recipe ready, finished.
 _NOT_A_BREW = {1, 65, 10, 29, 4, 5, 31, 36}
@@ -85,6 +91,7 @@ class Machine:
         self._subscribers: set[asyncio.Queue] = set()
         self._info: dict = {}
         self._activity: int | None = None
+        self._finished = False          # a brew finished and the machine has not moved on
         self._weight: float | None = None
         self._recipe: dict | None = None       # what this hub loaded, while armed
         self._preload_weight: float | None = None
@@ -109,6 +116,9 @@ class Machine:
         # counts as armed when this hub put the recipe there.
         if self._activity == _RECIPE_READY and self._recipe is not None:
             return "armed"
+        # The brew ended about 5 s before the machine changed to 36.
+        if self._activity == _FINISHED or self._finished:
+            return "finished"
         return "busy"
 
     def snapshot(self) -> dict:
@@ -154,6 +164,8 @@ class Machine:
             if key in decoded:
                 self._info[key] = decoded[key]
         cmd = decoded.get("cmd")
+        if "water_ml" in decoded:
+            decoded = {**decoded, "water_ml": round(decoded["water_ml"] / WATER_UNITS_PER_ML, 1)}
         if "weight_g" in decoded:
             self._weight = decoded["weight_g"]
         if "water_ml" in decoded:
@@ -167,6 +179,8 @@ class Machine:
         if "activity" in decoded:
             was_armed = self.state == "armed"
             self._activity = decoded["activity"]
+            if self._activity not in _BREWING:
+                self._finished = False
             if was_armed and self.state != "armed":
                 # The machine left the recipe screen: the load is over and its
                 # start ticket is void (invariant 3). The recipe itself is
@@ -181,8 +195,8 @@ class Machine:
                            and time.monotonic() - self._started_at < START_WINDOW_S)
             if cmd == CMD_POUR_START:
                 self._open_brew("pour_started")
-            elif changed and activity == _BREWING:
-                self._open_brew("activity_34")
+            elif changed and activity in _BREWING:
+                self._open_brew(f"activity_{activity}")
             elif changed and after_start and activity not in _NOT_A_BREW:
                 self._open_brew(f"activity_{activity}_after_start")
 
@@ -265,6 +279,7 @@ class Machine:
         self._save_brew()
         log.info("brew %s closed (%s)", brew["id"], reason)
         self._brew = None
+        self._finished = reason == "finished"
 
     def _save_brew(self) -> None:
         self._brew_saved = time.monotonic()
@@ -334,6 +349,7 @@ class Machine:
         self._lifecycle = lifecycle
         self._no_session.clear()
         self._activity = None
+        self._finished = False
         self._weight = None
         self._water = None
         self._cup = None
@@ -390,6 +406,7 @@ class Machine:
                 self._held = None
                 self._started_at = None
                 self._activity = None
+                self._finished = False
                 self._weight = None
                 self._water = None
                 self._cup = None

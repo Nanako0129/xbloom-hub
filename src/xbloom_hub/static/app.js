@@ -166,7 +166,8 @@ function chart(series, marks, legend) {
   const xMax = Math.max(30, ...all.map((p) => p[0]), ...(marks || []));
   const yMax = Math.max(50, ...all.map((p) => p[1]));
   const xStep = xMax > 240 ? 120 : xMax > 90 ? 60 : 30;
-  const yStep = yMax > 300 ? 200 : 100;
+  // At most five steps, whatever arrives: a wrong unit must not draw a thousand labels.
+  const yStep = [10, 20, 50, 100, 200, 500].find((step) => yMax / step <= 5) || Math.ceil(yMax / 5);
   const xTop = Math.ceil(xMax / xStep) * xStep, yTop = Math.ceil(yMax / yStep) * yStep;
   const px = (time) => L + (time / xTop) * (W - L - R), py = (v) => H - B - (v / yTop) * (H - T - B);
   const parts = [];
@@ -425,7 +426,7 @@ function viewHome() {
   fetchLastBrew();
   const cards = (library || []).slice(0, 6).map(recipeCard);
   return [
-    h("h1", {}, s === "asleep" ? t("home.asleep") : t("home.ready")),
+    h("h1", {}, s === "asleep" ? t("home.asleep") : s === "finished" ? t("home.finished") : t("home.ready")),
     h("div", { class: "cols" },
       h("div", {},
         h("h2", {}, t("home.pick")),
