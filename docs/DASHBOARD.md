@@ -5,6 +5,25 @@ library, past brews, and a console. It is built from `frontend/` (Svelte 5,
 TypeScript, ECharts, Vite) into `src/xbloom_hub/web/`, and nothing is loaded
 from elsewhere.
 
+## From a phone on the home network
+
+By default the hub answers only this host. To open it to a home network,
+listen on every interface and name the networks and the host's address
+(example values):
+
+```sh
+XBLOOM_BIND=0.0.0.0 \
+XBLOOM_ALLOWED_NETWORKS=127.0.0.0/8,::1/128,192.168.1.0/24 \
+XBLOOM_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.20 \
+uv run xbloom-hub
+```
+
+A client outside the listed networks gets 403 before anything else is
+looked at, whichever network the host is on; a network of every address is
+refused. The address bar must use a listed host name. Changing the machine
+still needs the token, which a phone gets once from `/#t=<token>` like any
+browser. The connection is plain HTTP on the LAN.
+
 ## Building it
 
 Every npm command runs in a throwaway container, never on the host

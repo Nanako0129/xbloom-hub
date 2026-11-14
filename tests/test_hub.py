@@ -578,3 +578,28 @@ def test_the_hub_refuses_to_start_without_a_built_dashboard(tmp_path, monkeypatc
     with pytest.raises(SystemExit) as stopped:
         entry.main()
     assert "frontend/npm.sh" in str(stopped.value) and "not built" in str(stopped.value)
+
+
+
+def test_only_clients_in_the_allowed_networks_are_answered():
+    import ipaddress
+
+    from starlette.applications import Starlette
+    from starlette.middleware import Middleware
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    from xbloom_hub.app import ClientNetworks, parse_networks
+
+    networks = parse_networks("127.0.0.0/8, 192.168.123.0/24")
+    app = Starlette(routes=[Route("/", lambda request: PlainTextResponse("ok"))],
+                    middleware=[Middleware(ClientNetworks, networks=networks)])
+    for client, allowed in (("127.0.0.1", True), ("192.168.123.40", True), ("192.168.1.40", False),
+                            ("10.0.0.5", False), ("testclient", False)):
+        answer = TestClient(app, client=(client, 50000)).get("/")
+        assert (answer.status_code == 200) is allowed, client
+    for bad in ("0.0.0.0/0", "", "not-a-network", "192.168.123.1/24"):
+        with pytest.raises(SystemExit):
+            parse_networks(bad)
+    assert parse_networks("::1/128")[0] == ipaddress.ip_network("::1/128")
