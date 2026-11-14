@@ -23,7 +23,8 @@ Line references are to xbloom-py 0.5.0 (`src/xbloom/`).
 **Stack.** Python 3.12, uv. `xbloom-py` (protocol, validation),
 `bleak-esphome` + `aioesphomeapi` (radio), the official `mcp` SDK >= 1.23.0
 mounted in one Starlette app with the REST/SSE routes, uvicorn. Recipes are
-YAML files, brew history is stdlib `sqlite3`, both on a `/data` volume. The
+YAML files and brew history is one JSON file per brew (S3 explains why not
+sqlite), both on a `/data` volume. The
 dashboard is static HTML and one static JS file, `EventSource`, no build step.
 All four libraries pinned to exact versions.
 
@@ -111,7 +112,7 @@ Each ends with an observed check, on the machine unless stated.
 | S1 | Hub core: session manager with the write gate, recipe store, REST + SSE, simulator backend, tests | load on simulator and machine |
 | S2 | MCP tools and a Claude Code skill from the ported brewing reference | a recipe written in Claude Code appears on the machine |
 | S3 | Dashboard and console page: live curve, event log, manual load / start / cancel | user watches one real brew in a browser |
-| S4 | Dockerfile and compose | one brew driven through the container |
+| S4 | Dockerfile and compose, deployed to a home server on the LAN rather than the development Mac | one brew driven through the container |
 | S5 | Home Assistant: state published over MQTT (method reconfirmed with the user then) | entities change during a brew |
 | S6 | Optional: xBloom account sync, brew rating fed back into recipe revision | decided later |
 
@@ -355,7 +356,14 @@ dispense water.
   sent, so a start can never be repeated; if the machine refuses the start,
   the recipe has to be cancelled and loaded again. The ticket is already void
   when the machine leaves the recipe screen or another load happens (S1).
-- `Machine.stop()` sends 40519 and is accepted only while a brew is running.
+- The start frame goes out through the listener's `send_confirmed`, which
+  re-sends only while the machine is asleep, not through `send_start`, whose
+  two attempts would write 8002 again if the first echo were lost. So "once"
+  means one write while the machine is awake; the firmware refuses a
+  duplicate as busy in any case (xbloom-py `spec.py`).
+- `Machine.stop()` sends 40519 and is accepted only while a brew record is
+  open (below). It does not wait behind a start's echo: it takes no lock that
+  a start holds while waiting.
 - `POST /api/machine/start` (body: the ticket) and `POST /api/machine/stop`.
   REST only, bearer token required as for every non-GET. **Not MCP tools.**
 - The dashboard's start button opens a confirmation that names the recipe and
@@ -372,21 +380,53 @@ xbloom-py notes two cradle notifications it has seen, 9002 (cup on) and 9008
 refused when it is `false`; when it is `null` (no event seen this session) the
 start is allowed and the dashboard says the cup is unconfirmed. Whether these
 events arrive on this machine is unverified and is recorded in the hardware
-run; the scale reading is not used (it stays tared, S1/S2).
+run; the scale reading is not used (it stays tared, S1/S2). This is how
+disposition P1-5's deferred cup check is settled: the official app has none
+at all, and the weight route is closed.
 
 ### The brew record
 
-A brew begins when the hub's start is accepted, or when the machine reports
-brewing by itself (started at the knob); it ends on 40512 (finished), 40513
-(abandoned), a return to home, a stop, a link loss, or 15 minutes. While one
-is open the state is `brewing`.
+**When a brew opens.** One of:
+
+- the hub writes 8002 (at the write, whether or not its echo arrives, so an
+  unanswered start still has a record and a Stop);
+- with no brew open, the machine reports a pour starting (40510) or activity
+  34 (the value xbloom-py and the Home Assistant integration give for
+  grinding and brewing). This is a brew started at the knob.
+
+Nothing else opens one. In particular these never do: activity 1 and 65
+(home), 10 (asleep), 29 (after the handshake), 4 and 5 (tare), 31 (recipe
+ready, also seen after a pause), 36 and the notifications 40511, 40512 and
+40513, so a record that has just closed is not reopened by its own ending.
+Which activity values this machine actually shows during a brew is recorded
+in the hardware run; 34 is from other people's observations, not ours.
+
+**The recipe travels with it.** Today the hub forgets its loaded recipe the
+moment the machine leaves the recipe screen. From S3, leaving 31 voids the
+start ticket and the "loaded" mark as before, but the recipe (as checked and
+as sent) is held until the machine is home or asleep again; a brew that opens
+in between, by either route, takes it. A brew that opens with nothing held
+has `recipe: null`.
+
+**When it closes.** 40512 (finished), 40513 (abandoned), a return to home
+(activity 1 or 65), or the link dropping; a stop the hub sent is recorded as
+the reason when the machine then goes home. There is no timer: a record stays
+open, and Stop stays available, for as long as the machine has not said the
+brew is over. While one is open the state is `brewing`.
 
 Each record is one JSON file under `data/brews/`: when it started, how it
-ended, the recipe as checked and as sent (or null for a brew the hub did not
-load), every weight (20501) and water (40523) reading with its time, and every
-other decoded notification with its time. The envelope named sqlite for
+ended, the recipe as checked and as sent (or null), every weight (20501) and
+water (40523) reading with its time, and every other decoded notification
+with its time. The file is written when the brew opens and again every ten
+seconds, so a hub restart mid-brew loses at most that. The id is made by the
+hub (`YYYYMMDD-HHMMSS` plus four random characters) and checked against that
+pattern on the way in, like a slug. The machine's serial number, which the
+status heartbeat carries, is dropped from records, the snapshot and the event
+stream: those are readable without the token. The envelope named sqlite for
 history; one file per brew needs no schema and no query, and nothing in S3
-asks a question across brews that a directory listing cannot answer.
+asks a question across brews that a directory listing cannot answer. With no
+SQL there is nothing left of disposition P2-5's "parameterised SQL"; its
+file-name rule now covers brew ids too.
 `GET /api/brews` lists them, `GET /api/brews/{id}` returns one. The snapshot
 and the event stream gain `water_ml`, `cup` and the open brew's id, start time
 and current pour.
@@ -421,26 +461,35 @@ text is Traditional Chinese.
 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none';
 frame-ancestors 'none'`, so there is no inline script or style. Every string
 that comes from a recipe or the machine is put into the page with
-`textContent`; nothing is assigned to `innerHTML` from data. The token arrives
+`textContent`; nothing is assigned to `innerHTML` from data. A recipe's
+`meta.source` becomes a link only when it starts with `https://`. The token arrives
 once in the URL fragment (`/#t=…`), is moved to `localStorage` and removed
 from the address bar; it is sent only in the `Authorization` header. The
 event stream stays unauthenticated and read-only.
 
 **Reaching it from a phone.** The hub binds to `127.0.0.1` by default. For
 the LAN, `XBLOOM_BIND=0.0.0.0` with the Mac's address and `.local` name added
-to `XBLOOM_ALLOWED_HOSTS`; the page says so in `docs/DASHBOARD.md`.
+to `XBLOOM_ALLOWED_HOSTS`; `docs/DASHBOARD.md` says how. The hub refuses to
+start with `*` or an empty entry in that list, so binding wide cannot undo
+the host check of P1-3.
 
 ### Tests (no hardware)
 
 - Gate: 8002 is refused outside a permit on every path, including through the
   listener's own `send_start`, and passes inside one; 40524 and the other
-  movers are still refused inside a permit.
+  movers are still refused inside a permit; an 8002 from another task while a
+  permit is open is refused.
 - Start: refused with a wrong, reused or expired ticket, after a cancel, after
   another load, when not armed, and when the last cradle event is cup-off;
   accepted once otherwise; not present in the MCP tool list.
-- The simulator gains a brew: after a start it reports brewing, pour events,
-  rising water and weight, and finished. A test checks the record written for
-  it, for a stop, and for a brew started without the hub.
+- The simulator gains a brew: after a start it reports activity 34, pour
+  events, rising water and weight, and finished. Tests check the record for a
+  hub start, for a stop, for a knob start after a hub load (recipe present),
+  for a knob start with nothing loaded (recipe null), and for an unanswered
+  8002 (record open, Stop accepted); that tare, handshake, recipe-ready and
+  finished signals open nothing; that a closed record is not reopened; that
+  the file exists while the brew is still running; and that no record, snapshot
+  or stream message contains the serial number.
 - The page: served with the CSP header; `index.html` contains no inline
   script, inline style or `on…=` attribute; `app.js` assigns no data to
   `innerHTML` (checked by reading the source in the test, and by loading a
@@ -455,21 +504,35 @@ desktop width, and the screens are looked at.
 
 ### Observed on the machine (user present)
 
-1. **Harmless start.** The S0 recipe (grinder off, 5 g, one 25 ml pour at
-   20 °C), no beans, dripper and empty cup in place. Load and start from the
-   dashboard. Expected: 25 ml of unheated water, the hub writes 8002 once, the
-   page follows the brew, a record is written. The run notes whether 9002 and
-   9008 arrive when the cup is lifted and put back before the load.
-2. **Stop.** The same recipe with a longer pour; start, then Stop from the
-   dashboard. Expected: the machine stops and returns to home; the record
-   ends as stopped. If 40519 does not stop it, the cup is in place and the
-   pour is at most 25 ml of unheated water.
-3. **A real brew**, when the user wants a coffee: a real recipe, everything a
+Steps 1 to 3 use recipes with the grinder off and water at 20 °C (room
+temperature, not heated), with no beans in the machine, water in the tank,
+and a dripper over an empty cup that holds at least 150 ml.
+
+1. **Harmless start.** Grinder off, 5 g, ratio 1:5: one 25 ml pour at 20 °C.
+   Load and start from the dashboard. Expected: 25 ml of unheated water; the
+   gate log shows one 8002; the page follows the brew; a record is written.
+   Before the load, the cup is lifted and put back, and the run notes whether
+   9002 and 9008 arrive. The run also notes every activity value seen.
+2. **Stop.** Grinder off, 5 g, ratio 1:20: one 100 ml pour at 20 °C and
+   3.0 ml/s, about 33 seconds. Start, then press Stop on the dashboard after
+   about ten seconds. Expected: the machine stops and returns to home; the
+   record ends as stopped with less than 100 ml of water. If 40519 does not
+   stop it: at most 100 ml of unheated water goes into the cup and the pour
+   ends by itself; the result is recorded and Stop is removed from the page
+   until it is understood.
+3. **Started at the knob.** The step-1 recipe, loaded from the dashboard and
+   started with the machine's knob. Expected: a record opens that carries the
+   recipe, and the page offers Stop. If no record opens, the signals that did
+   arrive are recorded and the rule above is corrected before S3 is called
+   done.
+4. **A real brew**, when the user wants a coffee: a real recipe, everything a
    brew needs in place, started from the dashboard, watched on the page.
    This is the first measurement of pour timing against the plan.
 
 Step 1 is the first time anything in this project sends a start. It is not
-attempted with nobody at the machine.
+attempted with nobody at the machine. What the machine does with the cup
+weight range that 8104 sends is unknown; if it refuses a start for that, the
+refusal is recorded, not worked around.
 
 **Non-goals.** A recipe editor; pause and resume; start or stop over MCP;
 Home Assistant; Docker; anything beyond the one shared token.
