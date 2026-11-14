@@ -231,7 +231,7 @@ def test_text_from_recipes_and_records_stays_text(ui, hub):
     for hash_ in ("#/recipes", "#/recipes/hostile", "#/history", "#/history/20261102-080000-bbbb",
                   "#/compare/20261101-080000-aaaa/20261102-080000-bbbb", "#/"):
         go(ui, hub, hash_)
-        expect(ui.get_by_text(HOSTILE).first).to_be_visible()
+        expect(ui.get_by_text(HOSTILE).locator("visible=true").first).to_be_visible()
         _no_markup(ui)
     go(ui, hub, "#/recipes/hostile")
     expect(ui.get_by_text(RECIPES["hostile"]["meta"]["roaster"])).to_be_visible()

@@ -14,6 +14,20 @@ from pathlib import Path
 _ID = re.compile(r"\d{8}-\d{6}-[a-z0-9]{4}")
 _ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 
+# The history list draws a tiny water curve per brew; 24 points are plenty for
+# a curve 64 px wide, and keep a list of hundreds of brews small.
+SPARK_POINTS = 24
+
+
+def _spark(water: list) -> list:
+    """The water series, thinned to at most SPARK_POINTS [t, ml] points, first
+    and last included, evenly spaced by index."""
+    n = len(water)
+    if n <= SPARK_POINTS:
+        return [list(p) for p in water]
+    keep = sorted({round(i * (n - 1) / (SPARK_POINTS - 1)) for i in range(SPARK_POINTS)})
+    return [list(water[i]) for i in keep]
+
 
 class BadBrewId(ValueError):
     pass
@@ -52,7 +66,7 @@ class BrewStore:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def list(self) -> list[dict]:
-        """Newest first, without the readings."""
+        """Newest first, without the readings (a thinned water curve, `spark`, aside)."""
         out = []
         for path in sorted(self._dir.glob("*.json"), reverse=True):
             try:
@@ -70,5 +84,6 @@ class BrewStore:
                 "recipe_name": (record.get("recipe") or {}).get("name"),
                 "slug": record.get("slug"),
                 "water_ml": water[-1][1] if water else None,
+                "spark": _spark(water),
             })
         return out

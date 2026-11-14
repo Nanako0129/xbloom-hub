@@ -7,6 +7,7 @@ export interface Plan { pours: PlanPour[]; total_ml: number; pour_end_s: number 
 export interface BrewSummary {
   id: string; started_at: string; ended_at: string | null; reason: string | null;
   duration_s: number | null; recipe_name: string | null; slug: string | null; water_ml: number | null;
+  spark?: Point[];            // the water series thinned to at most 24 points, for the history list
 }
 export interface BrewRecord extends BrewSummary {
   hub_started: boolean;
@@ -14,10 +15,34 @@ export interface BrewRecord extends BrewSummary {
   samples: { water: Point[]; weight: Point[] };
   events: [number, { cmd: number; [key: string]: unknown }][];
   plan: Plan | null;
+  rezeroed?: Point[];         // [seconds, grams carried over] for each scale reset the hub saw
 }
 
 export const pourStarts = (record: BrewRecord): number[] =>
   record.events.filter((e) => e[1].cmd === 40510).map((e) => e[0]);
+
+// What happened during a brew, as marks on its chart: a pour starting (cmd
+// 40510) or ending (40511), the scale being re-zeroed. `label` is short, for the
+// chart; `title` says it in full, for the reading under it.
+export interface Mark { t: number; kind: "start" | "end" | "rezero"; label: string; title: string }
+
+export const startMarks = (times: number[]): Mark[] =>
+  times.map((time, i) => ({ t: time, kind: "start", label: String(i + 1), title: t("mark.start", { n: i + 1 }) }));
+export const pourEnds = (record: BrewRecord): number[] =>
+  record.events.filter((e) => e[1].cmd === 40511).map((e) => e[0]);
+export function eventMarks(record: BrewRecord): Mark[] {
+  const ends: Mark[] = pourEnds(record).map((time, i) => ({ t: time, kind: "end", label: String(i + 1), title: t("mark.end", { n: i + 1 }) }));
+  const zeroes: Mark[] = (record.rezeroed ?? []).map(([time, grams]) =>
+    ({ t: time, kind: "rezero", label: "0", title: t("mark.rezero", { g: Math.round(grams) }) }));
+  return [...startMarks(pourStarts(record)), ...ends, ...zeroes].sort((a, b) => a.t - b.t);
+}
+
+// The pour starts by pour index (the machine's own number), for a brew that
+// is running: a page that joined late may not know the first ones.
+export const startsByIndex = (record: BrewRecord): Record<number, number> =>
+  Object.fromEntries(record.events.filter((e) => e[1].cmd === 40510 && typeof e[1].pour_index === "number")
+    .map((e) => [e[1].pour_index as number, e[0]]));
+
 export const recordName = (record: { recipe: { name: string } | null }): string =>
   record.recipe?.name || t("brew.at_machine");
 

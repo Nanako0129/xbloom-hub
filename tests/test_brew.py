@@ -767,3 +767,22 @@ def test_leaving_the_screen_after_the_last_pour_is_a_finished_brew(tmp_path):
         task.cancel()
 
     asyncio.run(run())
+
+
+# ---- the history list's sparkline ----------------------------------------------------
+def test_list_carries_a_thinned_water_curve_for_each_brew(tmp_path):
+    from xbloom_hub.brews import SPARK_POINTS, BrewStore
+
+    store = BrewStore(tmp_path)
+    long_water = [[i * 0.5, i * 1.5] for i in range(300)]
+    for brew_id, water in (("20261101-080000-aaaa", long_water), ("20261102-080000-bbbb", [[0.5, 1.0], [2.0, 4.0]]),
+                           ("20261103-080000-cccc", [])):
+        store.write({"id": brew_id, "started_at": "2026-11-01T08:00:00+08:00", "samples": {"water": water, "weight": []}})
+    by_id = {row["id"]: row for row in store.list()}
+    spark = by_id["20261101-080000-aaaa"]["spark"]
+    assert SPARK_POINTS == 24 and len(spark) <= SPARK_POINTS
+    assert spark[0] == long_water[0] and spark[-1] == long_water[-1]          # both ends kept
+    assert all(point in long_water for point in spark) and spark == sorted(spark)
+    assert by_id["20261101-080000-aaaa"]["water_ml"] == long_water[-1][1]       # the other fields are as before
+    assert by_id["20261102-080000-bbbb"]["spark"] == [[0.5, 1.0], [2.0, 4.0]]   # short series: as they are
+    assert by_id["20261103-080000-cccc"]["spark"] == []

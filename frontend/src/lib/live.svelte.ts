@@ -1,13 +1,14 @@
 // The brew that is running: its readings as they arrive, and what came before
 // this page was looking (fetched from its record). As the current dashboard.
 import { api, follow } from "./hub.svelte";
-import { pourStarts, type BrewRecord, type Point } from "./records";
+import { pourStarts, startsByIndex, type BrewRecord, type Point } from "./records";
 
 export const live = $state({
   id: null as string | null,
   water: [] as Point[],
   weight: [] as Point[],
   marks: [] as number[],
+  startAt: {} as Record<number, number>,     // when each pour (by its index) was seen to start, seconds into the brew
   lastPour: null as number | null,
 });
 
@@ -20,6 +21,7 @@ async function backfill(id: string): Promise<void> {
   const first = (points: { 0: number }[]) => (points.length ? points[0][0] : Infinity);
   live.water = record.samples.water.filter((p) => p[0] < first(live.water)).concat(live.water);
   live.weight = record.samples.weight.filter((p) => p[0] < first(live.weight)).concat(live.weight);
+  live.startAt = { ...startsByIndex(record), ...live.startAt };
   live.marks = pourStarts(record).filter((x) => x < first(live.marks.map((m) => [m]))).concat(live.marks);
 }
 
@@ -28,7 +30,7 @@ follow((next) => {
   if (!brew) return;
   if (live.id !== brew.id) {
     // Joining a brew is not a pour starting: count from the pour it is on.
-    Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], lastPour: brew.pour });
+    Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], startAt: {}, lastPour: brew.pour });
     if (brew.elapsed_s > JOINED_LATE_S) backfill(brew.id);
   }
   if (next.water_ml !== null) live.water.push([brew.elapsed_s, next.water_ml]);
@@ -37,5 +39,6 @@ follow((next) => {
   if (brew.pour !== null && brew.pour !== undefined && brew.pour !== live.lastPour) {
     live.lastPour = brew.pour;
     live.marks.push(brew.elapsed_s);
+    live.startAt[brew.pour] = brew.elapsed_s;
   }
 });

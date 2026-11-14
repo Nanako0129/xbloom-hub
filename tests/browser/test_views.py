@@ -76,7 +76,7 @@ def test_history_lists_brews_as_text_and_compares_two(next_ui, hub):
     next_ui.evaluate("location.hash = '#/history'")
     rows = next_ui.locator("#view .list li")
     expect(rows).to_have_count(2)
-    expect(next_ui.get_by_text(HOSTILE).first).to_be_visible()
+    expect(next_ui.get_by_text(HOSTILE).locator("visible=true").first).to_be_visible()
     _no_markup(next_ui)
     compare = next_ui.get_by_role("button", name="Compare the two selected")
     expect(compare).to_be_disabled()
