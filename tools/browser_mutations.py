@@ -44,7 +44,7 @@ GUARDS = {
         ('? [s.state, s.error, slug, s.brew && s.brew.id,', '? [s.state, s.error, slug, s.brew && s.brew.elapsed_s,'),
     ]),
     "the ticket goes when the machine leaves armed": ("test_the_ticket_goes_when_the_machine_leaves_armed", [
-        ("  else if (ticket && ticket.seenArmed) ticket = null;\n", ""),
+        ("  if (ticket && next.seq > ticket.seq\n      && !(next.state === \"armed\" && next.recipe && next.recipe.slug === ticket.slug)) ticket = null;\n", ""),
     ]),
     "the confirmation shows the hub's recipe": ("test_the_confirmation_shows_the_recipe_the_hub_holds", [
         ('const body = [h("p", {}, t("start.body")), recipeFacts(info), ', 'const body = [h("p", {}, t("start.body")), '),
@@ -69,6 +69,9 @@ def main() -> int:
     held = True
     # Each test once against the page as it is: it must pass there.
     baseline = {test: run(test, None, browser) for test, _ in GUARDS.values()}
+    for test, passed in baseline.items():
+        if not passed:
+            print(f"BROKEN    {test} fails on the page as it is: no guard can be judged by it")
     with tempfile.TemporaryDirectory(prefix="xbloom-mutant-") as tmp:
         for number, (name, (test, edits)) in enumerate(GUARDS.items()):
             copy = Path(tmp) / f"guard-{number}"

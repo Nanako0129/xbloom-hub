@@ -273,8 +273,11 @@ def test_both_languages_have_every_word(ui, hub):
         ui.reload()
         ui.wait_for_selector("#machine .state")
         expect(ui.locator("#tabs")).to_contain_text(tab)
-        for hash_ in ("#/", "#/recipes", "#/recipes/short", "#/history", "#/console"):
+        for hash_ in ("#/recipes", "#/recipes/short", "#/history", "#/console", "#/"):
             go(ui, hub, hash_)
+            # This route's view, not the last one's: arrive() marks the view on
+            # the hash change; then wait until it has finished loading.
+            ui.wait_for_function("() => 'enter' in document.getElementById('view').dataset")
             ui.wait_for_function("() => !document.getElementById('view').innerText.includes(t('loading'))")
             ui.wait_for_timeout(200)
             text = ui.locator("body").inner_text()

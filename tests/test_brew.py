@@ -714,3 +714,22 @@ def test_the_scale_reset_during_a_brew_is_carried_over(tmp_path):
         task.cancel()
 
     asyncio.run(run())
+
+
+def test_every_published_state_is_numbered_and_a_load_answer_carries_its_number(tmp_path):
+    """A page tells a state sent before a load's answer from one sent after."""
+    async def run():
+        machine, _, task = await ready(tmp_path)
+        queue = machine.subscribe()
+        first = machine.snapshot()["seq"]
+        loaded = await machine.load("test", lambda: ITEM)
+        seen = []
+        while not queue.empty():
+            seen.append(queue.get_nowait()["seq"])
+        assert seen == sorted(seen) and len(set(seen)) == len(seen) and seen[0] > first
+        assert loaded["seq"] == seen[-1] and loaded["state"] == "armed"
+        await machine.cancel()
+        assert machine.snapshot()["seq"] > loaded["seq"]
+        task.cancel()
+
+    asyncio.run(run())

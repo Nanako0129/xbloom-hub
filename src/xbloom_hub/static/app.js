@@ -315,11 +315,11 @@ function onSnapshot(next) {
     log.push([new Date(), next]);
     if (log.length > 200) log.shift();
   }
-  // The ticket goes when the machine leaves the recipe screen. A snapshot
-  // from before the load can still arrive after the load's answer; it says
-  // nothing about this ticket, so only a departure seen after arriving counts.
-  if (ticket && next.state === "armed") ticket.seenArmed = true;
-  else if (ticket && ticket.seenArmed) ticket = null;
+  // The ticket goes as soon as the machine is anywhere but on this recipe's
+  // screen. Only states published after the load count: one from before it
+  // can still arrive after the load's answer, and says nothing about it.
+  if (ticket && next.seq > ticket.seq
+      && !(next.state === "armed" && next.recipe && next.recipe.slug === ticket.slug)) ticket = null;
   const brew = next.brew;
   if (brew) {
     if (live.id !== brew.id) {
@@ -628,7 +628,7 @@ function viewBrewing() {
   const parts = brewingParts();
   const info = state.brew.slug ? plans.get(state.brew.slug) : null;
   return [
-    h("div", { id: "brew-flash" }, flashNode()),
+    h("div", { id: "brew-flash", "data-text": flash ? flash.text : "" }, flashNode()),
     h("div", { class: "row" }, h("div", { class: "done" }, iconSvg("pour"), h("h1", {}, state.brew.recipe_name || t("brew.at_machine"))),
       h("span", { class: "muted num", id: "live-pour" }, parts.pour)),
     h("div", { class: "readouts", id: "live-readouts" }, parts.readouts),
@@ -665,10 +665,7 @@ function updateBrewing() {
 async function load(slug) {
   plans.delete(slug);       // what is about to be loaded is what the hub holds now
   const loaded = await api("POST", "/api/machine/load", { slug });
-  // The armed snapshot may already have arrived, before this answer: the
-  // hub publishes on change, so it will not come again.
-  const armedNow = Boolean(state && state.state === "armed" && state.recipe && state.recipe.slug === slug);
-  ticket = { slug, value: loaded.ticket, seenArmed: armedNow };
+  ticket = { slug, value: loaded.ticket, seq: loaded.seq };
   location.hash = "#/";
 }
 
@@ -705,8 +702,7 @@ async function confirmStop() {
   stopping = false;
   setStopDisabled(false);
   if (!busy) delete document.body.dataset.busy;
-  updateBrewing();
-  render();
+  render();                                // while brewing, this updates in place
 }
 
 // On the home screen this sits beside two links, so it asks first.

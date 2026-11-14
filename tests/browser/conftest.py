@@ -35,6 +35,14 @@ from xbloom_hub.sim import SimListener, SimRadio
 TOKEN = "browser-test-token"
 HERE = Path(__file__).parent
 
+def pytest_collection_modifyitems(config, items):
+    """Every test under this directory is a browser test, whatever its module
+    says, so the default run (`-m 'not browser'`) never starts a browser."""
+    for item in items:
+        if HERE in item.path.parents:
+            item.add_marker(pytest.mark.browser)
+
+
 # Markup that would run if it ever became markup, and text a template might
 # interpolate. It must only ever be seen as text.
 HOSTILE = '<img src=x onerror="window.__pwned=1">{a|b}'
@@ -150,7 +158,26 @@ def hub(tmp_path, monkeypatch):
     server = uvicorn.Server(uvicorn.Config(application, host="127.0.0.1", port=port,
                                            log_level="warning", timeout_graceful_shutdown=1))
     loop = asyncio.new_event_loop()
-    thread = threading.Thread(target=lambda: loop.run_until_complete(server.serve()), daemon=True)
+
+    async def serve():
+        try:
+            await server.serve()
+        finally:
+            # What the simulated machine still has running ends with the hub,
+            # on this loop and in this thread (the test's own thread has
+            # Playwright's loop running and cannot run another).
+            others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for other in others:
+                other.cancel()
+            await asyncio.gather(*others, return_exceptions=True)
+
+    def run():
+        try:
+            loop.run_until_complete(serve())
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
     hub = Hub(f"http://127.0.0.1:{port}", loop, machine)
     deadline = time.monotonic() + 15
@@ -166,7 +193,6 @@ def hub(tmp_path, monkeypatch):
     server.should_exit = True
     thread.join(10)
     assert not thread.is_alive(), "the simulator hub did not stop"
-    loop.close()
 
 
 # Every problem the page reports, from every document it loads: a CSP

@@ -99,6 +99,9 @@ class Machine:
         self._lock = asyncio.Lock()
         self._changed = asyncio.Event()
         self._subscribers: set[asyncio.Queue] = set()
+        # Counts published states. A page can tell a state sent before an
+        # answer it holds from one sent after, whatever order they arrive in.
+        self._seq = 0
         self._info: dict = {}
         self._activity: int | None = None
         self._finished = False          # a brew finished and the machine has not moved on
@@ -136,6 +139,7 @@ class Machine:
         ticket or the machine's serial number."""
         brew = self._brew
         return {
+            "seq": self._seq,
             "state": self.state,
             "activity": self._activity,
             "weight_g": self._weight,
@@ -163,6 +167,7 @@ class Machine:
 
     def _publish(self) -> None:
         self._changed.set()
+        self._seq += 1
         snap = self.snapshot()
         for queue in self._subscribers:
             if queue.full():           # a slow reader loses the oldest state
