@@ -26,6 +26,9 @@
   --stop: #ff5a4d;
   --stop-press: #e04a3e;
 
+  --glow-warm: rgba(224, 164, 88, 0.13);    /* the tint, as light on the ground */
+  --glow-cool: rgba(108, 176, 232, 0.08);   /* the water colour, opposite it */
+  --ground-dot: rgba(255, 255, 255, 0.05);  /* the dot grid: visible, never noise */
   --dot: #f5f5f7;           /* a lit dot on the display */
   --dot-off: #333336;
 
@@ -47,7 +50,15 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--ground); color: var(--text); }
+html { background: var(--ground); }
+/* The ground: a warm light from the top right, a cool one from the bottom
+   left, and the machine's dot grid, all faint enough to sit behind cards. */
+body { margin: 0; color: var(--text); background:
+    radial-gradient(1100px 700px at 88% -8%, var(--glow-warm), transparent 62%),
+    radial-gradient(900px 620px at -6% 104%, var(--glow-cool), transparent 60%),
+    radial-gradient(circle, var(--ground-dot) 1px, transparent 1.6px) 0 0 / 22px 22px,
+    var(--ground);
+  background-attachment: fixed; }
 html { scroll-padding-bottom: calc(var(--tabs) + 24px + env(safe-area-inset-bottom)); }
 body { min-height: 100dvh; padding-bottom: calc(var(--tabs) + 24px + env(safe-area-inset-bottom)); }
 
@@ -192,6 +203,14 @@ a.recipe svg.bar { display: block; width: 100%; height: 8px; margin-top: 14px; b
 .chart .plan { stroke: var(--faint); stroke-dasharray: 5 5; }
 .chart .other { stroke-dasharray: 2 4; opacity: 0.8; }
 .chart .mark { stroke: var(--text); stroke-width: 1; opacity: 0.25; }
+.chart svg { touch-action: pan-y; cursor: crosshair; }
+.chart .cursor-line { stroke: var(--text); stroke-width: 1; opacity: 0.45; }
+.chart .cursor-dot { stroke: var(--card); stroke-width: 2; fill: var(--faint); }
+.chart .cursor-dot.water { fill: var(--water); }
+.chart .cursor-dot.coffee { fill: var(--coffee); }
+.chart .tip-box { fill: var(--raised); stroke: var(--hairline); }
+.chart .cursor text { fill: var(--text); font-size: 15px; }
+.chart .cursor .tip-time { fill: var(--muted); }
 .chart path { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 10px 8px 6px;
   color: var(--muted); font-size: 0.8125rem; }
@@ -316,6 +335,26 @@ button.small { min-height: 38px; padding: 0 14px; font-size: 0.875rem; flex: non
   .card.scale { padding-top: 40px; }
   .card.scale svg.dots { height: 120px; }
 }
+
+/* ---- writing a recipe ------------------------------------------------------------ */
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 0.8125rem; color: var(--muted); }
+.field.wide { grid-column: 1 / -1; }
+input[type="text"], input[type="number"], textarea { font: inherit; font-size: 1rem; color: var(--text);
+  background: var(--fill); border: 0; border-radius: var(--r-small); padding: 10px 12px; min-width: 0; width: 100%;
+  box-sizing: border-box; }
+textarea { resize: vertical; }
+.pours-edit { list-style: none; margin: 0; padding: 0; }
+.pours-edit > li + li { margin-top: 12px; }
+.pour-edit { display: grid; grid-template-columns: 28px repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end;
+  background: var(--card); border-radius: var(--r-card); padding: 16px; }
+.pour-edit .n { font-weight: 700; font-size: 1.25rem; align-self: start; grid-row: 1 / span 3; }
+@media (max-width: 699px) { .pour-edit { grid-template-columns: 28px repeat(2, minmax(0, 1fr)); } .pour-edit .n { grid-row: 1 / span 5; } }
+.pour-edit button.small { width: auto; margin-top: 0; }
+a.pill { display: inline-flex; align-items: center; min-height: 50px; padding: 0 20px; border-radius: var(--r-control);
+  background: var(--fill); color: var(--text); font-weight: 600; }
+a.pill:hover { background: var(--fill-press); }
+.notice ul { margin: 8px 0 0; padding-left: 18px; }
 
 /* ---- the home tiles ------------------------------------------------------------ */
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

@@ -655,8 +655,8 @@ def test_views_that_fetch_never_paint_directly():
     import re
 
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    views = re.findall(r"async function (view\w+)\(view, \w+\) \{\n(.*?)\n\}\n", script, flags=re.S)
-    assert {name for name, _ in views} == {"viewRecipes", "viewRecipe", "viewHistory", "viewBrew", "viewCompare"}
+    views = re.findall(r"async function (view\w+)\(view(?:, \w+)+\) \{\n(.*?)\n\}\n", script, flags=re.S)
+    assert {name for name, _ in views} == {"viewRecipes", "viewRecipe", "viewRecipeEdit", "viewHistory", "viewBrew", "viewCompare"}
     for name, body in views:
         assert "painter(view)" in body and "show(view" not in body, name
 

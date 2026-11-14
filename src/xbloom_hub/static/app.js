@@ -125,6 +125,7 @@ async function api(method, path, body) {
     const known = name && MESSAGES.en[`error.${name}`];
     const error = new Error(known ? t(`error.${name}`) : t("error.http", { status: response.status }));
     error.code = name;
+    error.fields = data && data.fields;
     throw error;
   }
   return data;
@@ -161,6 +162,7 @@ function readout(value, label, series, spoken) {
 
 // ---- chart -------------------------------------------------------------------
 // series: [{cls, points: [[seconds, value], ...]}], marks: [seconds]
+const TIP_W = 200;           // the reading's box, in the chart's own units: fits "Planned water  300 ml"
 function chart(series, marks, legend) {
   // Drawn in its own coordinate space and scaled to the column; the type is
   // sized so it is still readable when that column is a phone.
@@ -191,8 +193,43 @@ function chart(series, marks, legend) {
     const d = s.points.map((p, i) => `${i ? "L" : "M"}${px(p[0]).toFixed(1)} ${py(p[1]).toFixed(1)}`).join(" ");
     parts.push(svg("path", { class: s.cls, d }));
   }
-  return h("div", { class: "chart" },
-    svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": t("chart.label") }, parts),
+  // Under the pointer: a line at that moment, a dot on each curve, the values.
+  const names = Object.fromEntries(legend);
+  const shown = series.filter((s) => s.points.length);
+  const line = svg("line", { class: "cursor-line", y1: T, y2: H - B });
+  const marksOn = shown.map((s) => svg("circle", { class: `cursor-dot ${s.cls}`, r: 5 }));
+  const rows = [svg("text", { class: "tip-time", x: 12, y: 22 }), ...shown.map((s, i) => svg("text", { x: 12, y: 46 + i * 22 }))];
+  const box = svg("rect", { class: "tip-box", width: TIP_W, height: 34 + shown.length * 22, rx: 8 });
+  const tip = svg("g", {}, box, rows);
+  const cursor = svg("g", { class: "cursor", visibility: "hidden" }, line, marksOn, tip);
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": t("chart.label") }, parts, cursor);
+  const move = (event) => {
+    const bounds = root.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width) * W;
+    const time = Math.max(0, Math.min(xTop, ((x - L) / (W - L - R)) * xTop));
+    line.setAttribute("x1", px(time)); line.setAttribute("x2", px(time));
+    rows[0].textContent = clock(time);
+    shown.forEach((s, i) => {
+      // The value at this moment, on the line between the readings either
+      // side of it; before the first or after the last, that reading itself.
+      let before = s.points[0], after = null;
+      for (const point of s.points) { if (point[0] > time) { after = point; break; } before = point; }
+      const at = after && after[0] > before[0] && time >= before[0]
+        ? [time, before[1] + ((after[1] - before[1]) * (time - before[0])) / (after[0] - before[0])] : before;
+      marksOn[i].setAttribute("cx", px(at[0])); marksOn[i].setAttribute("cy", py(at[1]));
+      const name = names[s.cls] || names[s.cls.split(" ")[0]] || "";
+      rows[i + 1].textContent = `${name}  ${Math.round(at[1] * 10) / 10} ${s.cls.startsWith("coffee") ? "g" : "ml"}`;
+    });
+    const left = px(time) > W / 2 ? px(time) - TIP_W - 14 : px(time) + 14;
+    tip.setAttribute("transform", `translate(${left} ${T + 6})`);
+    cursor.setAttribute("visibility", "visible");
+  };
+  if (shown.length) {
+    root.addEventListener("pointermove", move);
+    root.addEventListener("pointerdown", move);
+    root.addEventListener("pointerleave", () => cursor.setAttribute("visibility", "hidden"));
+  }
+  return h("div", { class: "chart" }, root,
     h("div", { class: "legend" }, legend.map(([cls, text]) => h("span", {}, h("i", { class: cls }), text))));
 }
 
@@ -340,7 +377,7 @@ function renderStatus() {
 // ---- views ----------------------------------------------------------------------
 function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  if (parts[0] === "recipes") return { name: "recipes", id: parts[1] };
+  if (parts[0] === "recipes") return { name: "recipes", id: parts[1], sub: parts[2] };
   if (parts[0] === "history") return { name: "history", id: parts[1] };
   if (parts[0] === "compare") return { name: "compare", ids: parts.slice(1) };
   if (parts[0] === "console") return { name: "console" };
@@ -629,12 +666,129 @@ function ask(title, body, yes, danger) {
 }
 
 // ---- recipes ------------------------------------------------------------------------
-async function viewRecipes(view, id) {
+async function viewRecipes(view, id, sub) {
   const paint = painter(view);
+  if (id === "new") return viewRecipeEdit(view, null, sub);         // sub: a recipe to start from
+  if (id && sub === "edit") return viewRecipeEdit(view, id, id);
   if (id) return viewRecipe(view, id);
   if (!library) { paint(h("p", { class: "muted" }, t("loading"))); library = await api("GET", "/api/library"); }
-  paint(h("h1", {}, t("recipes.title")),
+  paint(h("div", { class: "row" }, h("h1", {}, t("recipes.title")),
+    h("a", { class: "pill", href: "#/recipes/new" }, t("action.new_recipe"))),
     library.length ? h("div", { class: "grid three" }, library.map(recipeCard)) : h("p", { class: "muted" }, t("recipes.empty")));
+}
+
+// ---- writing a recipe ------------------------------------------------------------------
+// The draft outlives a repaint of the page (the machine falling asleep causes
+// one), so what has been typed is not lost.
+let editing = null;          // {key, draft, slug, errors}
+const NEW_RECIPE = () => ({ name: "", cup_type: 2, dose_g: 15, ratio: 15, grind: true, grind_size: 60, grinder_speed_rpm: 80,
+  pours: [{ volume_ml: 45, temperature_c: 92, pause_s: 30, pattern: 2, flow_rate: 3, agitate_before: 2, agitate_after: 2 },
+    { volume_ml: 180, temperature_c: 92, pause_s: 0, pattern: 3, flow_rate: 3.5, agitate_before: 2, agitate_after: 2 }],
+  meta: { bean: "", roaster: "", process: "", roast: "", notes: "", source: "" } });
+
+function field(label, input, wide) {
+  return h("label", { class: wide ? "field wide" : "field" }, h("span", {}, label), input);
+}
+
+function numberInput(object, key, attrs, after) {
+  return h("input", { type: "number", inputmode: "decimal", value: object[key], ...attrs,
+    on: { input: (event) => { object[key] = event.target.value === "" ? null : Number(event.target.value); if (after) after(); } } });
+}
+
+function textInput(object, key, attrs) {
+  return h("input", { type: "text", value: object[key] || "", ...attrs, on: { input: (event) => { object[key] = event.target.value; } } });
+}
+
+function choice(object, key, options, after) {
+  return h("select", { on: { change: (event) => { object[key] = Number(event.target.value); if (after) after(); } } },
+    options.map(([value, text]) => h("option", { value, selected: object[key] === value }, text)));
+}
+
+function onOff(object, key, on, off) {
+  return h("input", { type: "checkbox", checked: object[key] === on, on: { change: (event) => { object[key] = event.target.checked ? on : off; } } });
+}
+
+async function viewRecipeEdit(view, slug, from) {
+  const paint = painter(view);
+  const key = location.hash;
+  if (!editing || editing.key !== key) {
+    let draft = NEW_RECIPE();
+    if (from) {
+      paint(h("p", { class: "muted" }, t("loading")));
+      const stored = await api("GET", `/api/recipes/${encodeURIComponent(from)}`);
+      draft = { ...draft, ...stored, ratio: Number(String(stored.ratio).split(":")[1]), meta: { ...draft.meta, ...(stored.meta || {}) },
+        pours: stored.pours.map((pour) => ({ ...pour })) };
+      if (!slug) draft.name = t("edit.copy_of", { name: stored.name });
+    }
+    editing = { key, draft, slug: slug || "", errors: null };
+  }
+  const { draft } = editing;
+  const total = h("p", { class: "muted num", id: "edit-total" });
+  const sum = () => {
+    const poured = draft.pours.reduce((n, pour) => n + (pour.volume_ml || 0), 0);
+    total.textContent = t("edit.total", { poured, target: Math.round((draft.dose_g || 0) * (draft.ratio || 0) * 10) / 10 });
+  };
+  const redraw = () => { last = ""; render(); };
+  const pours = draft.pours.map((pour, i) => h("li", { class: "pour-edit" },
+    h("div", { class: "n" }, String(i + 1)),
+    field(t("edit.volume"), numberInput(pour, "volume_ml", { min: 1, step: 1 }, sum)),
+    field(t("edit.temperature"), numberInput(pour, "temperature_c", { min: 20, max: 98, step: 1 })),
+    field(t("edit.flow"), numberInput(pour, "flow_rate", { min: 3, max: 3.5, step: 0.1 })),
+    field(t("edit.pause"), numberInput(pour, "pause_s", { min: 0, step: 1 })),
+    field(t("edit.pattern"), choice(pour, "pattern", [[1, t("pattern.1")], [2, t("pattern.2")], [3, t("pattern.3")]])),
+    field(t("edit.agitate_before"), onOff(pour, "agitate_before", 1, 2)),
+    field(t("edit.agitate_after"), onOff(pour, "agitate_after", 1, 2)),
+    draft.pours.length > 1 ? button(t("action.remove"), "close", { class: "quiet small", type: "button",
+      on: { click: () => { draft.pours.splice(i, 1); redraw(); } } }) : null));
+  const save = () => act(async () => {
+    const target = slug || editing.slug.trim();
+    const meta = Object.fromEntries(Object.entries(draft.meta).filter(([, value]) => value && value.trim()));
+    const body = { ...draft, ratio: `1:${draft.ratio}`, pours: draft.pours.map((pour) => ({ ...pour })) };
+    if (Object.keys(meta).length) body.meta = meta; else delete body.meta;
+    try {
+      await api("PUT", `/api/recipes/${encodeURIComponent(target)}`, body);
+    } catch (error) {
+      editing.errors = error.fields || { [error.code || "error"]: error.message };
+      throw error;
+    }
+    editing = null; library = null; plans.delete(target);
+    location.hash = `#/recipes/${encodeURIComponent(target)}`;
+  });
+  paint(
+    h("p", {}, h("a", { href: slug ? `#/recipes/${encodeURIComponent(slug)}` : "#/recipes" }, t("back"))),
+    h("h1", {}, slug ? t("edit.title") : t("edit.title_new")),
+    editing.errors ? h("section", { class: "notice bad" }, h("div", {}, t("edit.errors")),
+      h("ul", {}, Object.entries(editing.errors).map(([name, code]) => h("li", { class: "num" }, `${name}: ${code}`)))) : null,
+    h("div", { class: "cols" },
+      h("div", {},
+        h("section", { class: "card form" },
+          field(t("edit.name"), textInput(draft, "name", { maxlength: 80 }), true),
+          slug ? null : field(t("edit.slug"), textInput(editing, "slug", { maxlength: 64, pattern: "[a-z0-9][a-z0-9-]*", placeholder: "my-recipe", autocapitalize: "none", spellcheck: "false" }), true),
+          field(t("edit.cup"), choice(draft, "cup_type", [[1, t("cup_type.1")], [2, t("cup_type.2")], [3, t("cup_type.3")], [4, t("cup_type.4")]])),
+          field(t("fact.dose"), numberInput(draft, "dose_g", { min: 1, max: 25, step: 1 }, sum)),
+          field(t("edit.ratio"), numberInput(draft, "ratio", { min: 1, max: 25, step: 0.5 }, sum)),
+          field(t("edit.grind"), h("input", { type: "checkbox", checked: draft.grind, on: { change: (event) => { draft.grind = event.target.checked; } } })),
+          field(t("edit.grind_size"), numberInput(draft, "grind_size", { min: 1, max: 80, step: 1 })),
+          field(t("edit.rpm"), numberInput(draft, "grinder_speed_rpm", { min: 60, max: 120, step: 10 }))),
+        h("h2", {}, t("edit.pours")),
+        h("ol", { class: "pours-edit" }, pours),
+        total,
+        h("div", { class: "actions" },
+          button(t("action.add_pour"), null, { class: "quiet", type: "button", on: { click: () => {
+            const lastPour = draft.pours[draft.pours.length - 1];
+            draft.pours.push({ ...lastPour, pause_s: 0 }); redraw();
+          } } }))),
+      h("div", {},
+        h("section", { class: "card form" },
+          field(t("meta.bean"), textInput(draft.meta, "bean", { maxlength: 200 }), true),
+          field(t("meta.roaster"), textInput(draft.meta, "roaster", { maxlength: 200 }), true),
+          field(t("meta.process"), textInput(draft.meta, "process", { maxlength: 200 })),
+          field(t("meta.roast"), textInput(draft.meta, "roast", { maxlength: 200 })),
+          field(t("meta.notes"), h("textarea", { rows: 4, on: { input: (event) => { draft.meta.notes = event.target.value; } } }, draft.meta.notes || ""), true)),
+        h("div", { class: "actions" },
+          button(t("action.save"), null, { disabled: busy, on: { click: save } })),
+        h("p", { class: "muted" }, t("edit.hint")))));
+  sum();
 }
 
 async function viewRecipe(view, slug) {
@@ -663,6 +817,8 @@ async function viewRecipe(view, slug) {
         h("section", { class: "card" }, recipeFacts(info)),
         h("div", { class: "actions" },
           button(t("action.load"), "load", { disabled: busy || !canLoad, on: { click: () => act(() => load(slug)) } }),
+          h("a", { class: "pill", href: `#/recipes/${encodeURIComponent(slug)}/edit` }, t("action.edit")),
+          h("a", { class: "pill", href: `#/recipes/new/${encodeURIComponent(slug)}` }, t("action.duplicate")),
           button(t("action.delete"), "trash", { class: "quiet", disabled: busy, on: { click: async () => {
             if (await ask(t("delete.title", { name: recipe.name }), [h("p", {}, t("delete.body"))], t("action.delete"), true)) {
               act(async () => { await api("DELETE", `/api/recipes/${encodeURIComponent(slug)}`); library = null; plans.delete(slug); location.hash = "#/recipes"; });
@@ -836,7 +992,7 @@ function render() {
     const key = [location.hash, busy, flash ? flash.text : "", state ? state.state : "", LANGUAGE].join("|");
     if (key === last) return;
     last = key;
-    const done = r.name === "recipes" ? viewRecipes(view, r.id && decodeURIComponent(r.id))
+    const done = r.name === "recipes" ? viewRecipes(view, r.id && decodeURIComponent(r.id), r.sub && decodeURIComponent(r.sub))
       : r.name === "history" ? viewHistory(view, r.id) : viewCompare(view, r.ids);
     const paint = painter(view);
     done.catch((error) => paint(h("p", { class: "notice bad" }, error.message)));
