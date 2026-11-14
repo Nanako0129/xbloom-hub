@@ -280,3 +280,15 @@ def test_a_value_block_moves_with_the_keys_and_the_tally_follows(next_ui, hub):
     expect(next_ui.locator(".tally.bad")).to_have_count(1)       # 30 ml no longer matches 5 g at 1:5
     next_ui.get_by_role("button", name="OFF").click()
     expect(next_ui.locator(".slider", has_text="Grind size")).to_have_count(0)
+
+
+def test_the_logo_and_the_home_screen_entry_are_served(ui, hub):
+    for path, kind in (("icon.svg", "image/svg+xml"), ("apple-touch-icon.png", "image/png"),
+                       ("icon-192.png", "image/png"), ("icon-512.png", "image/png"),
+                       ("manifest.json", "application/json")):
+        answer = ui.request.get(f"{hub.base}/{path}")
+        assert answer.status == 200 and answer.headers["content-type"].startswith(kind), path
+    manifest = ui.request.get(f"{hub.base}/manifest.json").json()
+    # Opens in the browser: a standalone app on iOS would not share the pairing.
+    assert manifest["display"] == "browser" and manifest["name"] == "xbloom hub"
+    assert ui.locator("#side .brand img").evaluate("img => img.naturalWidth > 0")
