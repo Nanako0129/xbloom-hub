@@ -92,13 +92,16 @@ export function listen(): void {
   source.onmessage = (event) => {
     const next = JSON.parse(event.data) as Snapshot;
     const before = hub.state;
-    for (const fn of followers) fn(next, before);
     hub.reachable = true;
     if (!before || before.state !== next.state || before.error !== next.error || before.activity !== next.activity) {
       hub.log.push({ at: new Date(), snap: next });
       if (hub.log.length > 200) hub.log.shift();
     }
     hub.state = next;
+    // After the state itself: a follower that fails must not hold it back.
+    for (const fn of followers) {
+      try { fn(next, before); } catch (error) { console.error("a state follower failed", error); }
+    }
   };
   source.onerror = () => { hub.reachable = false; };
 }

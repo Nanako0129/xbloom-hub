@@ -26,7 +26,6 @@
   let library = $state<LibraryEntry[] | null>(null);
   let recent = $state<BrewSummary[]>([]);
   let lastBrew = $state<BrewRecord | null>(null);
-  let plans = $state<Record<string, RecipeInfo>>({});
 
   api<LibraryEntry[]>("GET", "/api/library").then((list) => { library = list; }).catch(() => {});
 
@@ -44,13 +43,17 @@
 
   // The recipe on the machine, as the hub holds it now; fetched again when the machine arms.
   const slug = $derived(s?.recipe?.slug ?? s?.brew?.slug ?? null);
+  // Keyed by the load: one fetch per load, and an answer for an older load is dropped.
+  const loadKey = $derived(slug ? `${slug}|${s?.load_id ?? s?.brew?.id ?? ""}` : "");
+  let plan = $state<{ key: string; info: RecipeInfo } | null>(null);
   $effect(() => {
-    if (!slug || (name !== "armed" && name !== "brewing")) return;
+    const key = loadKey;
+    if (!slug || (name !== "armed" && name !== "brewing") || plan?.key === key) return;
     const want = slug;
     api<RecipeInfo>("GET", `/api/recipes/${encodeURIComponent(want)}/plan`)
-      .then((info) => { plans = { ...plans, [want]: info }; }).catch(() => {});
+      .then((answer) => { if (loadKey === key) plan = { key, info: answer }; }).catch(() => {});
   });
-  const info = $derived(slug ? plans[slug] ?? null : null);
+  const info = $derived(plan && slug && plan.key.startsWith(`${slug}|`) ? plan.info : null);
 
   // ---- the brew that is running ---------------------------------------------
   const pourText = $derived.by(() => {
@@ -125,7 +128,7 @@
         <div class="readouts">
           <Readout value={info.recipe.grind ? String(info.recipe.grind_size) : "--"} label={t("readout.grind")}
             spoken={info.recipe.grind ? String(info.recipe.grind_size) : t("fact.no_grind")} />
-          <Readout value={info.as_sent.ratio.slice(2)} label={t("readout.ratio")} spoken={info.as_sent.ratio} />
+          <Readout value={info.as_sent.ratio.split(":").pop() ?? "-"} label={t("readout.ratio")} spoken={info.as_sent.ratio} />
           <Readout value=">" label={t("readout.waiting")} spoken={t("readout.waiting")} />
         </div>
         <section class="card"><RecipeFacts {info} /><dl class="facts"><dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd></dl></section>
@@ -159,7 +162,7 @@
   <div class="home">
     <div class="home-now">
       <section class="card scale">
-        <Readout value={s.weight_g === null ? "-" : String(Math.round(s.weight_g))} label={t("home.scale")} />
+        <Readout value={whole(s.weight_g)} label={t("home.scale")} />
         <dl class="facts"><dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd><dt>{t("tank")}</dt><dd>{tankText(s.water_enough)}</dd></dl>
       </section>
       <div class="tiles">

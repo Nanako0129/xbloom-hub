@@ -239,7 +239,9 @@ def test_armed_shows_the_recipe_and_sends_start_to_the_current_page(next_ui, hub
     expect(next_ui.get_by_role("heading", name="Short test")).to_be_visible()
     expect(next_ui.locator("#view .readouts .readout")).to_have_count(3)
     expect(next_ui.locator("#view a[href='/#/']")).to_have_count(1)
-    expect(next_ui.locator("#view button")).to_have_count(1)        # the plan chart's legend only
+    # Nothing on /next/ can start or stop the machine yet (C11).
+    for name in ("Start brew", "Stop", "Load onto machine", "Cancel load"):
+        expect(next_ui.get_by_role("button", name=name)).to_have_count(0)
 
 
 def test_a_brew_follows_live_then_shows_its_end(next_ui, hub):
@@ -255,6 +257,7 @@ def test_a_brew_follows_live_then_shows_its_end(next_ui, hub):
     expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
     expect(next_ui.locator("#view .pours li[data-now='true']")).to_have_count(1)
     expect(next_ui.locator("#view a[href='/#/']")).to_have_count(1)   # Stop is on the current page
+    expect(next_ui.get_by_role("button", name="Stop")).to_have_count(0)
     expect(next_ui.get_by_role("heading", name="Brew finished")).to_be_visible(timeout=20000)
     expect(next_ui.locator("#view svg.dot-cup")).to_be_visible()
     expect(next_ui.locator("#view .readouts .readout")).to_have_count(3)

@@ -2,11 +2,10 @@
   import { hub, listen } from "./lib/hub.svelte";
   import { route } from "./lib/route.svelte";
   import { t } from "./lib/i18n.svelte";
-  import { stateLabel, stateDetail } from "./lib/words";
+  import { stateLabel, stateDetail, unheard } from "./lib/words";
   import Icon from "./components/Icon.svelte";
   import MachineCard from "./components/MachineCard.svelte";
   import Console from "./pages/Console.svelte";
-  import Elsewhere from "./pages/Elsewhere.svelte";
   import History from "./pages/History.svelte";
   import Brew from "./pages/Brew.svelte";
   import Compare from "./pages/Compare.svelte";
@@ -56,7 +55,7 @@
 
 <div id="main">
   <header id="status" aria-live="polite">
-    <span id="status-lamp" class="lamp" data-state={hub.reachable ? s?.state : "offline"}></span>
+    <span id="status-lamp" class="lamp" data-state={!hub.reachable ? "offline" : s && unheard(s) ? "unheard" : s?.state}></span>
     <span id="status-text">{statusText}</span>
     <span id="status-detail">{statusDetail}</span>
   </header>
@@ -83,8 +82,6 @@
       {/key}
     {:else if route.current.name === "compare"}
       {#key route.hash}<Compare ids={route.current.ids ?? []} />{/key}
-    {:else}
-      <Elsewhere title={t(`tab.${current}`)} />
     {/if}
   </main>
 </div>

@@ -33,5 +33,9 @@ follow((next) => {
   }
   if (next.water_ml !== null) live.water.push([brew.elapsed_s, next.water_ml]);
   if (next.weight_g !== null) live.weight.push([brew.elapsed_s, next.weight_g]);
-  if (brew.pour !== live.lastPour) { live.lastPour = brew.pour; live.marks.push(brew.elapsed_s); }
+  // A pour starting is a new pour index; a report without one is not a start.
+  if (brew.pour !== null && brew.pour !== undefined && brew.pour !== live.lastPour) {
+    live.lastPour = brew.pour;
+    live.marks.push(brew.elapsed_s);
+  }
 });

@@ -188,7 +188,9 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         return JSONResponse(brews.list() if brews else [])
 
     async def brew_item(request):
-        record = brews.get(request.path_params["brew_id"]) if brews else None
+        brew_id = request.path_params["brew_id"]
+        # The running brew from memory (its file lags by up to a checkpoint), else the file.
+        record = machine.open_record(brew_id) or (brews.get(brew_id) if brews else None)
         if record is None:
             return JSONResponse({"error": "not_found"}, 404)
         # The planned line for the chart, from the recipe the brew carried.
