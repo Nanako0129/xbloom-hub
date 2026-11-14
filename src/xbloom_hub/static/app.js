@@ -44,6 +44,8 @@ const DOT_ICONS = {
   apart: "0000000 0000000 1110111 1010101 1110111 0000000 0000000",
   // A cup, for a finished brew; nine by nine, and the two top rows are steam.
   cup: "001010100 010101000 000000000 111111100 100000111 100000101 100000111 010001000 001110000",
+  // Water falling: three columns of drops; each row lights in turn.
+  pour: "01010 10101 01010 10101 01010 10101 01010",
 };
 const DOT_ICON_R = 0.4;      // of a 1-unit cell: dots stay apart at 20 px, still read as filled
 
@@ -63,7 +65,8 @@ function iconSvg(name) {
   if (DOT_ICONS[name]) {
     const lit = [], rows = DOT_ICONS[name].split(" ");
     rows.forEach((row, y) => [...row].forEach((bit, x) => {
-      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R, class: name === "cup" && y < 2 ? `steam s${y}` : "" }));
+      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R,
+        class: name === "cup" && y < 2 ? `steam s${y}` : name === "pour" ? `fall f${y}` : "" }));
     }));
     return svg("svg", { viewBox: `0 0 ${rows[0].length} ${rows.length}`, class: `matrix dot-${name}`, "aria-hidden": "true" }, lit);
   }
@@ -144,16 +147,34 @@ const GLYPHS = {
 
 function dots(text, label) {
   let x = 0;
-  const circles = [];
+  const circles = [], widths = [];
   for (const char of String(text)) {
     const rows = (GLYPHS[char] || GLYPHS["-"]).split(" ");
     const width = rows[0].length;
+    widths.push(width);
     rows.forEach((row, y) => [...row].forEach((bit, dx) => {
       circles.push(svg("circle", { cx: x + dx + 0.5, cy: y + 0.5, r: 0.36, class: bit === "1" ? "on" : "off" }));
     }));
     x += width + 1;
   }
-  return svg("svg", { viewBox: `0 0 ${Math.max(1, x - 1)} 7`, class: "dots", role: "img", "aria-label": label || String(text) }, circles);
+  // data-grid: the glyph widths, so two readouts can be told to have their dots in the same places.
+  return svg("svg", { viewBox: `0 0 ${Math.max(1, x - 1)} 7`, class: "dots", role: "img", "aria-label": label || String(text), "data-grid": widths.join(",") }, circles);
+}
+
+// Put new dots where old ones are. When the grid is the same size only the
+// dots that differ change class, and the stylesheet turns them over.
+function swapDots(holder, fresh) {
+  const old = holder.querySelector("svg.dots");
+  if (!old || old.dataset.grid !== fresh.dataset.grid || old.children.length !== fresh.children.length) {
+    if (old) old.replaceWith(fresh); else holder.prepend(fresh);
+    return;
+  }
+  const before = old.children, after = fresh.children;
+  for (let i = 0; i < before.length; i += 1) {
+    const cls = after[i].getAttribute("class");
+    if (before[i].getAttribute("class") !== cls) before[i].setAttribute("class", cls);
+  }
+  old.setAttribute("aria-label", fresh.getAttribute("aria-label"));
 }
 
 function readout(value, label, series, spoken) {
@@ -162,8 +183,9 @@ function readout(value, label, series, spoken) {
 
 // ---- chart -------------------------------------------------------------------
 // series: [{cls, points: [[seconds, value], ...]}], marks: [seconds]
+const ENTER_MS = 700;        // how long a page's arrival may animate; redraws after that are instant
 const TIP_W = 240;           // the reading's box, in the chart's own units: fits "Water (other brew)  131 ml"
-function chart(series, marks, legend) {
+function chart(series, marks, legend, live) {
   // Drawn in its own coordinate space and scaled to the column; the type is
   // sized so it is still readable when that column is a phone.
   const W = 640, H = 340, L = 52, R = 26, T = 14, B = 36;
@@ -191,7 +213,9 @@ function chart(series, marks, legend) {
   for (const s of series) {
     if (s.points.length < 2) continue;
     const d = s.points.map((p, i) => `${i ? "L" : "M"}${px(p[0]).toFixed(1)} ${py(p[1]).toFixed(1)}`).join(" ");
-    parts.push(svg("path", { class: s.cls, d }));
+    // Solid curves are drawn in from the left; dashed ones keep their dashes and fade in.
+    const solid = !live && (s.cls === "water" || s.cls === "coffee");
+    parts.push(svg("path", solid ? { class: `${s.cls} drawn`, d, pathLength: 1 } : { class: live ? s.cls : `${s.cls} faded`, d }));
   }
   // Under the pointer: a line at that moment, a dot on each curve, the values.
   const names = Object.fromEntries(legend);
@@ -477,7 +501,7 @@ const scaleDots = () => dots(state.weight_g === null || state.weight_g === undef
 // The scale changes several times a second; only its dots are redrawn.
 function updateScale() {
   const node = document.getElementById("live-scale");
-  if (node) node.replaceChildren(scaleDots());
+  if (node) swapDots(node, scaleDots());
 }
 
 // The last few brews and what they add up to.
@@ -581,7 +605,7 @@ function brewingParts() {
     readouts: [readout(clock(brew.elapsed_s), t("readout.time"), null),
       readout(whole(state.water_ml), t("readout.water"), "water"),
       readout(whole(state.weight_g), t("readout.coffee"), "coffee")],
-    chart: chart(series, live.marks, legend),
+    chart: chart(series, live.marks, legend, true),
     index: brew.pour === undefined ? null : brew.pour,
   };
 }
@@ -590,7 +614,7 @@ function viewBrewing() {
   const parts = brewingParts();
   const info = state.brew.slug ? plans.get(state.brew.slug) : null;
   return [
-    h("div", { class: "row" }, h("h1", {}, state.brew.recipe_name || t("brew.at_machine")),
+    h("div", { class: "row" }, h("div", { class: "done" }, iconSvg("pour"), h("h1", {}, state.brew.recipe_name || t("brew.at_machine"))),
       h("span", { class: "muted num", id: "live-pour" }, parts.pour)),
     h("div", { class: "readouts", id: "live-readouts" }, parts.readouts),
     h("div", { class: "cols" },
@@ -606,7 +630,8 @@ function updateBrewing() {
   if (!pour) return false;
   const parts = brewingParts();
   pour.textContent = parts.pour;
-  document.getElementById("live-readouts").replaceChildren(...parts.readouts);
+  const shown = document.getElementById("live-readouts").children;
+  parts.readouts.forEach((fresh, i) => swapDots(shown[i], fresh.querySelector("svg.dots")));
   document.getElementById("live-chart").replaceChildren(parts.chart);
   const list = document.getElementById("live-pours");
   if (list) [...list.children].forEach((item, i) => {
@@ -1012,11 +1037,18 @@ function render() {
   }
 }
 
-window.addEventListener("hashchange", () => { flash = null; last = ""; library = null;
+function arrive() {
+  const view = document.getElementById("view");
+  view.dataset.enter = "";
+  clearTimeout(arrive.timer);
+  arrive.timer = setTimeout(() => { delete view.dataset.enter; }, ENTER_MS);
+}
+window.addEventListener("hashchange", () => { arrive(); flash = null; last = ""; library = null;
   if (editing && editing.key !== location.hash) editing = null;    // an abandoned draft is not picked up again
   if (route().name === "console") refreshGate(); render(); document.getElementById("view").focus(); });
 setInterval(() => { if (route().name === "console") refreshGate(); }, 3000);
 for (const node of document.querySelectorAll("[data-icon]")) node.append(iconSvg(node.dataset.icon));
+arrive();
 applyLanguage();
 connect();
 if (route().name === "console") refreshGate();
