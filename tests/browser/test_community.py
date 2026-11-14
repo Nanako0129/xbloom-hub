@@ -49,3 +49,14 @@ def test_a_link_to_another_host_is_refused(ui, hub):
     ui.locator("#share-slug").fill("evil")
     ui.get_by_role("button", name="Import").click()
     expect(ui.locator("#flash")).to_have_text("That is not an xBloom recipe share link.")
+
+
+def test_next_stops_at_the_hubs_last_page(ui, hub):
+    def at_page_50(route):
+        answer = route.fetch()
+        body = answer.json()
+        route.fulfill(response=answer, json={**body, "page": 50, "total_pages": 80})
+    ui.route("**/api/community/search?*", at_page_50)
+    go(ui, hub, "#/community")
+    expect(ui.locator("a.community-card")).to_have_count(2)
+    expect(ui.get_by_role("button", name="Next")).to_be_disabled()

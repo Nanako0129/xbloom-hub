@@ -226,17 +226,17 @@ def to_hub(vo: object, sid: str, found: dict | None = None) -> tuple[dict | None
 
     meta = {"source": share_link(sid)}
 
-    def joined(value: object) -> str:
-        items = value if isinstance(value, list) else [value]
-        return clean_text(", ".join(str(v) for v in items if isinstance(v, (str, int)) and str(v).strip()))
+    def words(*values: object) -> str:
+        # Text only: a number here would be an id, meaningless once saved.
+        items = [item for value in values for item in (value if isinstance(value, list) else [value])]
+        return ", ".join(t for t in (_text(item, 80) for item in items[:20]) if t)[:META_MAX].strip()
 
-    pod_name = clean_text(str(pod.get("theName") or ""))[:NAME_MAX].strip()
+    pod_name = _text(pod.get("theName"), NAME_MAX)
     for key, value in (
         ("notes", f"xPod: {pod_name}" if pod_name else ""),
-        ("roast", joined(pod.get("roast"))[:META_MAX].strip()),
-        ("process", joined(pod.get("process"))[:META_MAX].strip()),
-        ("bean", joined([*(pod.get("origin") if isinstance(pod.get("origin"), list) else [pod.get("origin")]),
-                         *(pod.get("varietal") if isinstance(pod.get("varietal"), list) else [pod.get("varietal")])])[:META_MAX].strip()),
+        ("roast", words(pod.get("roast"))),
+        ("process", words(pod.get("process"))),
+        ("bean", words(pod.get("origin"), pod.get("varietal"))),
     ):
         if value:
             meta[key] = value

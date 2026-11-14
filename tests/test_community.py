@@ -566,3 +566,12 @@ def test_a_pod_recipe_is_importable_and_names_its_pod(tmp_path):
         assert meta["notes"] == "xPod: Rwanda Washed. Sweet."
         assert meta["bean"] == "Rwanda, Bourbon" and meta["process"] == "Washed" and meta["roast"] == "Light"
         assert "img.example" not in json.dumps(meta)
+
+
+def test_a_pods_ids_and_objects_are_not_saved_as_text(tmp_path):
+    pod = {"theName": {"en": "Rwanda"}, "origin": [11, "Rwanda"], "roast": 1, "process": True}
+    with make_client(tmp_path, Fake(vo=vo_with(podsVo=pod),
+                                    detail={**DETAIL, "origin": [], "varietal": [], "process": [], "roast": None})) as hub:
+        meta = hub.get("/api/community/4242", headers=AUTH).json()["from_xbloom_users"]["recipe"]["meta"]
+        assert meta.get("bean") == "Rwanda" and "roast" not in meta and "process" not in meta
+        assert not meta.get("notes", "").startswith("xPod")

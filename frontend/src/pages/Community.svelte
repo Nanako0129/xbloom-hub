@@ -21,27 +21,36 @@
   let source = $state("");
   let sort = $state("date");
   let chosen = $state<Record<string, string>>({});
+  const MAX_PAGE = 50;        // the hub's own limit on a page number
   let page = $state(1);
+  let asked = new URLSearchParams();   // the query whose results are on screen
   let results = $state<Page | null>(null);
   let failed = $state("");
   let searching = $state(false);
   let link = $state("");
   let linkSlug = $state("");
 
+  // One after the other: the hub runs two requests to xBloom at most.
   api<{ from_xbloom_users: Criteria }>("GET", "/api/community/criteria")
-    .then((answer) => { criteria = answer.from_xbloom_users; }).catch(() => { /* filters stay empty */ });
+    .then((answer) => { criteria = answer.from_xbloom_users; }).catch(() => { /* filters stay empty */ })
+    .finally(() => search());
 
-  async function search(at = 1) {
-    failed = ""; searching = true; page = at;
-    const query = new URLSearchParams({ page: String(at), sort });
-    if (keyword.trim()) query.set("keyword", keyword.trim());
-    if (source) query.set("source", source);
-    for (const [key] of FILTERS) if (chosen[key]) query.set(key, chosen[key]);
-    try { results = await api<Page>("GET", `/api/community/search?${query}`); }
+  // A new search reads the form; paging keeps the query that is on screen.
+  async function search(at = 1, query = formQuery()) {
+    failed = ""; searching = true;
+    query.set("page", String(at));
+    try { results = await api<Page>("GET", `/api/community/search?${query}`); asked = query; page = at; }
     catch (error) { failed = (error as Error).message; }
     finally { searching = false; }
   }
-  search();
+  function formQuery(): URLSearchParams {
+    const query = new URLSearchParams({ sort });
+    if (keyword.trim()) query.set("keyword", keyword.trim());
+    if (source) query.set("source", source);
+    for (const [key] of FILTERS) if (chosen[key]) query.set(key, chosen[key]);
+    return query;
+  }
+  const lastPage = $derived(Math.min(results?.total_pages ?? 1, MAX_PAGE));
 
   const importLink = () => act(async () => {
     const answer = await api<{ slug: string }>("POST", "/api/community/import", { share_url: link.trim(), slug: linkSlug.trim() });
@@ -53,7 +62,7 @@
 <h1>{t("community.title")}</h1>
 <p class="muted">{t("community.hint")}</p>
 
-<form class="card community-search" onsubmit={(event) => { event.preventDefault(); search(1); }}>
+<form class="card community-form community-search" onsubmit={(event) => { event.preventDefault(); search(1); }}>
   <label><span>{t("community.keyword")}</span><input type="search" maxlength="80" bind:value={keyword} /></label>
   <label><span>{t("community.source")}</span>
     <select bind:value={source}>
@@ -98,16 +107,16 @@
     {/each}
   </div>
   <div class="actions">
-    <button class="quiet" disabled={searching || results.page <= 1} onclick={() => search(page - 1)}>{t("community.prev")}</button>
-    <button class="quiet" disabled={searching || results.page >= results.total_pages} onclick={() => search(page + 1)}>{t("community.next")}</button>
+    <button class="quiet" disabled={searching || results.page <= 1} onclick={() => search(page - 1, new URLSearchParams(asked))}>{t("community.prev")}</button>
+    <button class="quiet" disabled={searching || results.page >= lastPage} onclick={() => search(page + 1, new URLSearchParams(asked))}>{t("community.next")}</button>
   </div>
 {/if}
 
-<form class="card" onsubmit={(event) => { event.preventDefault(); importLink(); }}>
+<form class="card community-form" onsubmit={(event) => { event.preventDefault(); importLink(); }}>
   <h2>{t("community.link")}</h2>
   <p class="muted">{t("community.link_hint")}</p>
   <label><span>{t("community.link")}</span><input id="share-link" type="url" required bind:value={link} placeholder="https://share-h5.xbloom.com/?id=…" /></label>
-  <label><span>{t("community.slug")}</span><input id="share-slug" required pattern="[a-z0-9][a-z0-9\-]*" bind:value={linkSlug} /></label>
+  <label><span>{t("community.slug")}</span><input id="share-slug" required pattern="[a-z0-9][a-z0-9\-]*" maxlength="64" bind:value={linkSlug} /></label>
   <p class="muted">{t("community.slug_hint")}</p>
   <div class="actions"><button type="submit" disabled={work.busy}>{t("community.import")}</button></div>
 </form>

@@ -151,7 +151,8 @@ def build_server(machine: Machine, store: RecipeStore, community: Community) -> 
                              "search_community_recipes): its description, the recipe as it would "
                              "be saved in this hub's library, as_sent and plan, and whether it "
                              "can be saved (importable) with the reason per field when not. A "
-                             "recipe that uses bypass water or a pod cannot be saved." + UNTRUSTED)
+                             "recipe with bypass water switched on cannot be saved; one made for "
+                             "an xBloom pod can, with the pod named in its notes." + UNTRUSTED)
     async def get_community_recipe(id: int) -> dict:
         try:
             return {"ok": True, **await community.detail(id)}

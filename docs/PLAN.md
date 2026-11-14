@@ -700,11 +700,13 @@ for `checked()` to fill in.
 | `meta.notes` | the community detail's `description`, when imported by id | through `clean_text()`, cut at the meta cap |
 | `meta.roast`, `meta.process`, `meta.bean` | the community detail's `roast`, `process`, `origin` and `varietal`, when imported by id | joined with ", ", through `clean_text()` |
 
-Not importable, whatever else holds: `isEnableBypassWater` equal to 1, a
-`bypassVolume` or `bypassTemp` present, a non-empty `podsVo`, `pourCount`
-different from the length of `pourList`.
+Not importable, whatever else holds: `isEnableBypassWater` equal to 1 (or,
+with no switch, a `bypassVolume` or `bypassTemp` present), `pourCount`
+different from the length of `pourList`. A recipe made for a pod
+(`podsVo`) is importable, its pod named in `meta.notes`.
 
-*Changed after the live check, by the owner (2026-11-14).* Of four official
+*Changed after the live check, by the owner (2026-11-14); the slice as
+reviewed refused any `bypassVolume` or `bypassTemp` and any pod.* Of four official
 recipes all four had a `podsVo`, and of three community recipes all three
 carried `bypassVolume` and `bypassTemp` (5.0 ml; 85 or 40 °C) with
 `isEnableBypassWater` at 2, off. Per the Stops below, the choice went to the

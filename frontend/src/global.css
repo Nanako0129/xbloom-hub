@@ -606,8 +606,8 @@ button.choice-item svg { width: 34px; height: 34px; fill: none; stroke: currentC
 .community-search { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; align-items: end; }
 .community-search label:first-child { grid-column: 1 / -1; }   /* the keyword: a whole row */
 @media (min-width: 1200px) { .community-search label:first-child { grid-column: auto / span 2; } }
-.community-search label, .card label { display: grid; gap: 4px; }
-.community-search label span, .card label span { color: var(--muted); font-size: 0.875rem; }
+.community-form label { display: grid; gap: 4px; }
+.community-form label span { color: var(--muted); font-size: 0.875rem; }
 .community-search .actions { grid-column: 1 / -1; }
 .badge { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px;
   font-size: 0.75rem; color: var(--coffee); border: 1px solid currentColor; }

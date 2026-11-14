@@ -43,7 +43,13 @@
   }, t("community.save"));
 
   const card = $derived(shown?.from_xbloom_users.community);
-  const facts = $derived(card ? [
+  // What will be saved when there is a recipe (a pod's beans and name
+  // included); else what the card lists.
+  const saved = $derived(shown?.from_xbloom_users.recipe?.meta);
+  const facts = $derived(saved ? [
+    ["community.origin", saved.bean ?? ""], ["community.process", saved.process ?? ""],
+    ["community.roast", saved.roast ?? ""], ["meta.notes", saved.notes ?? ""],
+  ].filter(([, value]) => value) : card ? [
     ["community.origin", [...card.origin, ...card.varietal].join(", ")],
     ["community.process", card.process.join(", ")],
     ["community.roast", card.roast],
@@ -62,7 +68,7 @@
     <div>
       {#if shown.importable && shown.plan && shown.from_xbloom_users.recipe}
         <PoursList plan={shown.plan} pours={shown.from_xbloom_users.recipe.pours} />
-        <form class="card" onsubmit={(event) => { event.preventDefault(); save(); }}>
+        <form class="card community-form" onsubmit={(event) => { event.preventDefault(); save(); }}>
           <label><span>{t("community.slug")}</span><input id="community-slug" required pattern="[a-z0-9][a-z0-9\-]*" maxlength="64" bind:value={slug} /></label>
           <p class="muted">{t("community.slug_hint")}</p>
           <div class="actions"><button type="submit" disabled={work.busy}>{t("community.save")}</button></div>
