@@ -6,8 +6,11 @@ export const DOT_ICONS: Record<string, string> = {
   curve: "0000000 0000111 0001000 0010000 0100000 1000000 1111111",
   prompt: "0000000 1000000 0100000 0010000 0100000 1000111 0000000",
   apart: "0000000 0000000 1110111 1010101 1110111 0000000 0000000",
-  // A cup, for a finished brew; nine by nine, and the two top rows are steam.
-  cup: "001010100 010101000 000000000 111111100 100000111 100000101 100000111 010001000 001110000",
+  // A cup, for a finished brew, as the machine's own done screen draws it
+  // (owner's photos, 2026-11-14): a hollow mug with a solid handle on the
+  // right, and two rows of steam whose dots alternate between frame a and
+  // frame b, one column apart, so the steam sways.
+  cup: "0baba00 0abab00 1111110 1000011 1000011 1000011 0111100",
   // Water falling: three columns of drops; each row lights in turn.
   pour: "01010 10101 01010 10101 01010 10101 01010",
 };
