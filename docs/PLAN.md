@@ -811,9 +811,10 @@ Docker image (S4) builds in a separate stage and copies only the output.
   `src/lib/hub.ts` (the token, `api()`, the event stream, the one-request
   lock), `src/lib/i18n.ts` (the two dictionaries, moved as they are).
 - `vite build` writes to `src/xbloom_hub/web/`, which is git-ignored and
-  shipped in the wheel by
-  `[tool.hatch.build.targets.wheel] artifacts = ["src/xbloom_hub/web/**"]`
-  (hatchling leaves ignored files out otherwise). Vite builds with
+  shipped in the sdist and the wheel by
+  `[tool.hatch.build] artifacts = ["src/xbloom_hub/web/**"]` (hatchling
+  leaves ignored files out otherwise, and `uv build` makes the wheel from
+  the sdist, so a wheel-only setting would not reach it). Vite builds with
   `base: "./"`: every asset is referenced relative to the page, so the same
   build works at `/next/` and at `/`.
 - **Serving, one rule per phase.**
@@ -868,11 +869,13 @@ Docker image (S4) builds in a separate stage and copies only the output.
      (so it holds a ticket), then the same slug is cancelled and loaded
      again through REST, and the page shows "load again" and no Start;
    - the start confirmation shows the recipe as the hub returns it: the
-     dialog's name, dose, ratio and pour volumes equal the hub's `plan`
-     answer for that slug.
+     dialog's name, dose, total water, pour count with end time, and grind
+     (what the old dialog shows) equal the hub's `plan` answer for that
+     slug.
    Each of these four is shown to fail when the line it guards is removed
-   from a copy of the old `app.js` (the `busy` early return in `act()`, the
-   stable Stop node, the ticket drop on leaving the armed state,
+   from a copy of the old `app.js` (for one request at a time, the whole
+   guard: the `busy` early return in `act()` and the `disabled: busy` on
+   Start and Load, so that two POSTs reach the hub; the stable Stop node, the ticket drop on leaving the armed state,
    `recipeFacts(info)` in the confirmation), and to pass on the old page as
    it is. The rest of the list: the recipe editor saves, refuses a taken id, keeps typing after
    a refusal; history, a record, compare; the console; both languages; no
@@ -899,8 +902,9 @@ During steps 2 to 5 the new page is served at `/next/` and the old one at
 violation; `svelte-check` and the build have no errors; the Python suite
 passes; during steps 2 to 5, with `web/` built, `GET /` is the old page,
 `GET /next/` is the new one and every asset it references answers 200 with
-the CSP header; `uv build` after `vite build` gives a wheel whose file list
-holds `xbloom_hub/web/index.html` and its assets; after step 6, starting
+the CSP header; after `npm --prefix frontend run build` and `uv build`, both
+`unzip -l dist/*.whl` and `tar -tzf dist/*.tar.gz` list
+`xbloom_hub/web/index.html` and every asset it references; after step 6, starting
 with no `web/` stops with the message; the owner looks at it at 2560 px and on the phone. Then one load
 and one start of the 25 ml test recipe on the machine, owner present, as
 in S3 step 1.
