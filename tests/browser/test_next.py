@@ -92,3 +92,62 @@ def test_both_dashboards_are_served_with_the_policy(hub):
     for asset in assets:
         answer = httpx.get(f"{hub.base}/next/{asset}", timeout=5)
         assert answer.status_code == 200 and "content-security-policy" in answer.headers, asset
+
+
+# ---- step 3: history, a record, compare, on ECharts ---------------------------
+
+def _no_markup(page) -> None:
+    assert page.evaluate("window.__pwned") is None
+    assert page.locator("#view img, #view script, #view [onerror], #view [onmouseover]").count() == 0
+
+
+def test_history_lists_brews_as_text_and_compares_two(next_ui, hub):
+    from .conftest import HOSTILE
+    next_ui.evaluate("location.hash = '#/history'")
+    rows = next_ui.locator("#view .list li")
+    expect(rows).to_have_count(2)
+    expect(next_ui.get_by_text(HOSTILE).first).to_be_visible()
+    _no_markup(next_ui)
+    compare = next_ui.locator("#view a.pill")
+    expect(compare).to_have_attribute("aria-disabled", "true")
+    rows.nth(0).locator("input").check()
+    rows.nth(1).locator("input").check()
+    expect(compare).to_have_attribute("aria-disabled", "false")
+    compare.click()
+    next_ui.wait_for_function("() => location.hash.startsWith('#/compare/')")
+    expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
+    expect(next_ui.locator("#view .legend .key")).to_have_count(4)
+    _no_markup(next_ui)
+
+
+def test_a_record_reads_under_the_pointer_zooms_and_hides_a_line(next_ui, hub):
+    from .conftest import HOSTILE
+    next_ui.evaluate("location.hash = '#/history/20261102-080000-bbbb'")
+    canvas = next_ui.locator("#view .echart-canvas")
+    expect(canvas.locator("canvas").first).to_be_visible()
+    expect(next_ui.get_by_role("heading", level=1)).to_have_text(HOSTILE)
+    next_ui.wait_for_timeout(1000)                          # the drawing animation
+    box = canvas.bounding_box()
+    next_ui.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.4)
+    reading = next_ui.locator("#view .reading")
+    expect(reading.locator(".time")).to_be_visible()
+    text = reading.inner_text()
+    assert "ml" in text and " g" in text, text                # water and coffee at that moment
+    # Scroll to zoom, then a double click shows the whole brew again.
+    next_ui.keyboard.down("Control")
+    next_ui.mouse.wheel(0, -400)
+    next_ui.keyboard.up("Control")
+    next_ui.wait_for_timeout(300)
+    next_ui.mouse.dblclick(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.4)
+    # A legend key hides its line, and the reading drops it.
+    coffee = next_ui.locator("#view .legend .key", has_text="Coffee")
+    coffee.click()
+    expect(coffee).to_have_attribute("aria-pressed", "false")
+    next_ui.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.4)
+    expect(reading).not_to_contain_text(" g")
+    _no_markup(next_ui)
+
+
+def test_a_record_that_is_not_there_says_so(next_ui, hub):
+    next_ui.evaluate("location.hash = '#/history/20991231-000000-zzzz'")
+    expect(next_ui.locator("#view .notice.bad")).to_be_visible()
