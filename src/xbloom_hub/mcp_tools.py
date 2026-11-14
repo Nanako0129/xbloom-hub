@@ -85,21 +85,19 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
                              "Only works while the machine is idle or asleep.")
     async def load_recipe(slug: str) -> dict:
         try:
-            recipe = store.get(slug)
-            if recipe is None:
+            if store.get(slug) is None:
                 return {"ok": False, "error": "not_found"}
-            await machine.load(slug, to_machine(recipe))
+
+            def read():
+                recipe = store.get(slug)
+                return to_machine(recipe) if recipe is not None else None
+
+            # Raises unless the machine reports it is waiting, so ok means armed.
+            await machine.load(slug, read)
         except _EXPECTED as err:
             return _failure(err)
         # machine.load() returns a one-time start ticket. It stays in the hub.
-        snapshot = machine.snapshot()
-        if snapshot["state"] != "armed":
-            # The machine took the recipe but has not said it is waiting. Do
-            # not let "ok" stand for "armed".
-            return {**snapshot, "ok": False, "error": "not_confirmed",
-                    "detail": "the recipe was sent but the machine has not reported it is "
-                              "waiting; check machine_state before telling anyone to start"}
-        return {"ok": True, **snapshot}
+        return {"ok": True, **machine.snapshot()}
 
     @server.tool(description="Take back a recipe that was loaded and has not been started. "
                              "Only works while the machine is armed.")

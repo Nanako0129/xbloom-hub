@@ -26,8 +26,14 @@ TABLE: dict[type[Exception], tuple[int, str]] = {
 }
 
 
+def lookup(err: Exception) -> tuple[int, str]:
+    # By class hierarchy, as the callers catch: a subclass added later must
+    # not turn into a KeyError.
+    return next(TABLE[cls] for cls in type(err).__mro__ if cls in TABLE)
+
+
 def describe(err: Exception) -> dict:
-    body = {"error": TABLE[type(err)][1], "detail": str(err)}
+    body = {"error": lookup(err)[1], "detail": str(err)}
     if isinstance(err, RecipeInvalid):
         body["fields"] = err.errors
     return body

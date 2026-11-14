@@ -83,7 +83,7 @@ def test_ungated_session_is_never_usable():
         assert machine.state == "offline"
         assert machine.snapshot()["error"] == "gate_missing"
         with pytest.raises(NotReady):
-            await machine.load("x", WIRE)
+            await machine.load("x", lambda: WIRE)
         task.cancel()
 
     asyncio.run(run())
@@ -97,13 +97,13 @@ def test_load_cancel_release_acquire_on_simulator():
         with pytest.raises(NotReady):
             await machine.cancel()                       # cancel only while armed
 
-        loaded = await machine.load("test", WIRE)
+        loaded = await machine.load("test", lambda: WIRE)
         assert loaded["state"] == "armed" and loaded["ticket"]
         assert loaded["preload_weight_g"] == 132.4      # read before the tare
         assert "ticket" not in machine.snapshot()
         assert machine._listener._client.gate_log == [8100, 8102, 8104, 8004]
         with pytest.raises(NotReady):
-            await machine.load("test", WIRE)           # no load on top of a load
+            await machine.load("test", lambda: WIRE)           # no load on top of a load
 
         assert (await machine.cancel())["state"] == "idle"
         assert machine._ticket is None and machine.snapshot()["recipe"] is None
@@ -158,7 +158,7 @@ def test_link_drop_during_load_issues_no_ticket():
         task = asyncio.create_task(machine.run())
         assert await machine._wait_for(lambda: machine.state == "idle", 2)
         with pytest.raises(NotReady):
-            await machine.load("test", WIRE)
+            await machine.load("test", lambda: WIRE)
         assert machine._ticket is None and machine._recipe is None
         task.cancel()
 
@@ -500,9 +500,51 @@ def test_load_is_not_ok_unless_the_machine_says_armed(tmp_path, monkeypatch):
             time.sleep(0.05)
         assert call(c, "save_recipe", slug="one", recipe=RECIPE)["ok"]
         loaded = call(c, "load_recipe", slug="one")
-        assert loaded["ok"] is False and loaded["error"] == "not_confirmed"
+        assert loaded["ok"] is False and loaded["error"] == "not_ready"
+        assert c.post("/api/machine/load", json={"slug": "one"}, headers=AUTH).status_code == 409
+        # and the slug is not left locked by a load that never armed
+        assert call(c, "save_recipe", slug="one", recipe=RECIPE)["ok"]
 
 
 def test_same_failure_has_the_same_name_on_rest_and_mcp(client):
     rest = client.post("/api/machine/cancel", headers=AUTH).json()["error"]
     assert rest == call(client, "cancel_load")["error"] == "not_ready"
+
+
+def test_a_save_cannot_slip_in_while_a_load_reads_the_recipe(tmp_path):
+    from xbloom_hub import errors
+
+    store = RecipeStore(tmp_path)
+    store.put("r", RECIPE)
+    seen = {}
+
+    async def run():
+        machine = Machine(SimRadio(), SimListener)
+        task = asyncio.create_task(machine.run())
+        assert await machine._wait_for(lambda: machine.state == "idle", 2)
+
+        def read():
+            # This is the moment the content is taken. A save to the same slug
+            # must already be refused here, and another slug must not be.
+            try:
+                errors.guard_loaded(machine, "r")
+            except errors.RecipeLoaded:
+                seen["blocked"] = True
+            errors.guard_loaded(machine, "other")
+            return to_machine(store.get("r"))
+
+        assert (await machine.load("r", read))["state"] == "armed"
+        with pytest.raises(NotReady):                       # gone from the library
+            await machine.cancel() and None
+            await machine.load("r", lambda: None)
+        assert machine.snapshot()["recipe"] is None
+        task.cancel()
+
+    asyncio.run(run())
+    assert seen == {"blocked": True}
+
+
+def test_name_cannot_be_only_invisible_characters():
+    with pytest.raises(RecipeInvalid) as err:
+        checked({**RECIPE, "name": "\u200d\u200c"})
+    assert "name" in err.value.errors

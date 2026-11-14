@@ -257,8 +257,15 @@ class Machine:
         self._publish()
 
     # ---- commands ------------------------------------------------------- #
-    async def load(self, slug: str, recipe: dict) -> dict:
-        """Send a validated recipe without starting it. Returns the start ticket."""
+    async def load(self, slug: str, read) -> dict:
+        """Send a validated recipe without starting it. Returns the start ticket.
+
+        `read()` returns the recipe in the encoder's shape, or None if it is
+        gone. It is called here, under the lock and after the slug has been
+        marked as loading, so the content that goes out is the content stored
+        at that moment: a save racing with a load is either seen by it or
+        refused, never silently left behind under the same name.
+        """
         async with self._lock:
             if self.state not in ("idle", "asleep"):
                 raise NotReady(f"cannot load while {self.state}")
@@ -266,8 +273,12 @@ class Machine:
             # Entering the recipe screen tares the scale, so this is the last
             # honest reading of what is on it (docs/S0-RESULTS.md, item 2).
             self._preload_weight = self._weight
-            self._recipe = {"slug": slug, "name": recipe.get("name")}
+            self._recipe = {"slug": slug, "name": None}
             try:
+                recipe = read()                 # no await between the mark and the read
+                if recipe is None:
+                    raise NotReady(f"recipe '{slug}' is no longer in the library")
+                self._recipe["name"] = recipe.get("name")
                 await listener.send_prepare(recipe)
             except BaseException:
                 self._clear_load()
@@ -284,7 +295,14 @@ class Machine:
                 "ticket": ticket, "recipe_sha256": digest,
                 "expires": time.monotonic() + TICKET_TTL_S,
             }
-            await self._wait_for(lambda: self.state == "armed", 5)
+            if not await self._wait_for(lambda: self.state == "armed", 5):
+                # The frames were accepted but the machine has not said it is
+                # waiting. Do not report a load, and do not keep the slug
+                # marked: if it does arm later it shows as busy and sleeps out.
+                self._clear_load()
+                self._publish()
+                raise NotReady("the recipe was sent but the machine did not report it is "
+                               "waiting")
             self._publish()
             return {"ticket": ticket, "expires_in_s": TICKET_TTL_S, **self.snapshot()}
 

@@ -4,7 +4,7 @@
 # file, an environment variable or a command line.
 set -eu
 # Default relative to this script, not to wherever it was started from.
-file="${XBLOOM_HUB_TOKEN_FILE:-$(dirname "$0")/../secrets/hub_token}"
+file="${XBLOOM_HUB_TOKEN_FILE:-$(cd "$(dirname "$0")/.." && pwd)/secrets/hub_token}"
 [ -s "$file" ] || { echo "xbloom-hub: no token in $file" >&2; exit 1; }
 exec python3 -c '
 import json, sys

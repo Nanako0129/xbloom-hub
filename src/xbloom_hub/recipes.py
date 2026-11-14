@@ -54,7 +54,8 @@ def clean_text(value: str) -> str:
             out.append(ch)                  # joiners: emoji, Persian, Indic text
         elif category[0] != "C":
             out.append(ch)
-    return " ".join("".join(out).split())
+    # Joiners are kept inside text, not as the whole of it or at its edges.
+    return " ".join("".join(out).split()).strip("\u200c\u200d ")
 
 
 def _whole(value: object) -> int | None:

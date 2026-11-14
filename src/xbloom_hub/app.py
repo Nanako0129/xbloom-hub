@@ -71,6 +71,11 @@ class Guard:
         return await self._app(scope, receive, send)
 
 
+def _wire(store: RecipeStore, slug: str) -> dict | None:
+    recipe = store.get(slug)
+    return to_machine(recipe) if recipe is not None else None
+
+
 def create_app(machine: Machine, store: RecipeStore, token: str,
                allowed_hosts: list[str], radio=None) -> Starlette:
 
@@ -104,17 +109,20 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         if request.method == "GET":
             recipe = store.get(slug)
             return JSONResponse(recipe) if recipe else JSONResponse({"error": "not_found"}, 404)
-        errors.guard_loaded(machine, slug)
         if request.method == "DELETE":
+            errors.guard_loaded(machine, slug)
             return JSONResponse({"deleted": store.delete(slug)})
-        return JSONResponse(store.put(slug, await _json(request)))
+        body = await _json(request)
+        # After the body is read: nothing may await between this check and
+        # the write, or a load could finish in the gap.
+        errors.guard_loaded(machine, slug)
+        return JSONResponse(store.put(slug, body))
 
     async def load(request):
         slug = (await _json(request)).get("slug")
-        recipe = store.get(slug)
-        if recipe is None:
+        if store.get(slug) is None:
             return JSONResponse({"error": "not_found"}, 404)
-        return JSONResponse(await machine.load(slug, to_machine(recipe)))
+        return JSONResponse(await machine.load(slug, lambda: _wire(store, slug)))
 
     async def cancel(request):
         return JSONResponse(await machine.cancel())
@@ -137,7 +145,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         return body
 
     async def failure(request, exc):
-        return JSONResponse(errors.describe(exc), errors.TABLE[type(exc)][0])
+        return JSONResponse(errors.describe(exc), errors.lookup(exc)[0])
 
     from mcp.server.transport_security import TransportSecuritySettings
 
