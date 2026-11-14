@@ -139,6 +139,8 @@ def _free_port() -> int:
 def hub(tmp_path, monkeypatch):
     if other := os.environ.get("XBLOOM_TEST_STATIC_DIR"):
         monkeypatch.setattr(hub_app, "STATIC_DIR", Path(other))
+    if other := os.environ.get("XBLOOM_TEST_WEB_DIR"):
+        monkeypatch.setattr(hub_app, "WEB_DIR", Path(other))
     (tmp_path / "recipes").mkdir()
     for slug, recipe in RECIPES.items():
         (tmp_path / "recipes" / f"{slug}.yaml").write_text(
@@ -211,9 +213,13 @@ PROBE = """
 """
 
 
-@pytest.fixture
-def ui(page, hub):
-    """The dashboard, opened with the token, in English, watched for problems."""
+@pytest.fixture(params=["", "next/"], ids=["current", "next"])
+def ui(request, page, hub):
+    """The dashboard, opened with the token, in English, watched for problems.
+    Every test runs against the current page at / and the rebuilt one at
+    /next/ (docs/PLAN.md, S3c: the switch waits until both pass)."""
+    if request.param and not (hub_app.WEB_DIR / "index.html").is_file():
+        pytest.skip("the new dashboard is not built (frontend/npm.sh run build)")
     problems: list[str] = []
 
     def on_console(message):
@@ -227,7 +233,7 @@ def ui(page, hub):
     # English unless a test has chosen otherwise.
     page.add_init_script(
         "try { if (!localStorage.getItem('xbloom-hub-lang')) localStorage.setItem('xbloom-hub-lang', 'en'); } catch (_) {}")
-    page.goto(f"{hub.base}/#t={TOKEN}")
+    page.goto(f"{hub.base}/{request.param}#t={TOKEN}")
     page.wait_for_selector("#machine .state")
     page.problems = problems
     yield page

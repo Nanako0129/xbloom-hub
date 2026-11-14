@@ -218,6 +218,9 @@ def test_cancel(ui, hub):
     expect(ui.get_by_role("heading", name="Ready to brew")).to_be_visible()
 
 
+LOADING = {"en": "Loading.", "zh-Hant": "讀取中。"}    # the dictionaries' "loading", on either page
+
+
 def _no_markup(page) -> None:
     assert page.evaluate("window.__pwned") is None
     # Only what the hostile strings would have made: the page's own <b> and <i> are fine.
@@ -273,9 +276,10 @@ def test_history_a_record_and_compare(ui, hub):
     boxes.nth(1).check()
     ui.get_by_role("button", name="Compare the two selected").click()
     ui.wait_for_function("() => location.hash.startsWith('#/compare/')")
-    expect(ui.locator("#view .chart svg").first).to_be_visible()
+    expect(ui.locator("#view .chart svg, #view .chart canvas").first).to_be_visible()
     go(ui, hub, "#/history/20261102-080000-bbbb")
-    chart = ui.locator("#view .chart svg").first
+    chart = ui.locator("#view .chart").first
+    expect(chart.locator("svg, canvas").first).to_be_visible()
     expect(chart).to_be_visible()
     chart.hover()
     _no_markup(ui)
@@ -299,7 +303,7 @@ def test_both_languages_have_every_word(ui, hub):
             ui.evaluate("() => { const v = document.getElementById('view'); if (v.firstElementChild) v.firstElementChild.dataset.stale = '1'; }")
             go(ui, hub, hash_)
             ui.wait_for_function("() => !document.querySelector('#view [data-stale]')")
-            ui.wait_for_function("() => !document.getElementById('view').innerText.includes(t('loading'))")
+            ui.wait_for_function("(l) => !document.getElementById('view').innerText.includes(l)", arg=LOADING[language])
             ui.wait_for_timeout(200)
             text = ui.locator("body").inner_text()
             for planted in (HOSTILE, *RECIPES["hostile"]["meta"].values()):
@@ -322,3 +326,17 @@ def test_a_new_recipe_never_replaces_a_broken_hand_made_file(ui, hub):
     ui.get_by_role("button", name="Save").click()
     expect(ui.get_by_text("in_use")).to_be_visible()
     assert (store_dir / "handmade.yaml").read_text() == "not: a recipe\n"
+
+
+
+def test_load_again_takes_over_a_load_made_elsewhere(ui, hub):
+    """Pressed for real: the load elsewhere is cancelled and this page's own
+    load takes its place, with Start offered for it."""
+    first = hub.api("POST", "/api/machine/load", {"slug": "short"}).json()
+    hub.wait_state("armed")
+    ui.get_by_role("button", name="Load again").click()
+    expect(ui.get_by_role("button", name="Start brew")).to_be_visible()
+    snapshot = hub.wait_state("armed")
+    assert snapshot["load_id"] and snapshot["load_id"] != first["load_id"]
+    assert snapshot["recipe"]["slug"] == "short"
+    expect(ui.locator("#flash.bad, .notice.bad")).to_have_count(0)

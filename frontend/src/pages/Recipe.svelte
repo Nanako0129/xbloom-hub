@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api } from "../lib/hub.svelte";
+  import { api, hub } from "../lib/hub.svelte";
+  import { act, work, load, ask } from "../lib/actions.svelte";
   import { t } from "../lib/i18n.svelte";
   import { planLine } from "../lib/records";
   import { isLink, type RecipeInfo } from "../lib/recipes";
@@ -20,6 +21,7 @@
   });
 
   const META = ["bean", "roaster", "process", "roast"] as const;
+  const canLoad = $derived(hub.state?.state === "idle" || hub.state?.state === "asleep");
   const meta = $derived(info?.recipe.meta ?? {});
 </script>
 
@@ -40,9 +42,13 @@
       <div class="actions">
         <a class="pill" href="#/recipes/{encodeURIComponent(slug)}/edit">{t("action.edit")}</a>
         <a class="pill" href="#/recipes/new/{encodeURIComponent(slug)}">{t("action.duplicate")}</a>
-        <!-- Loading and deleting stay on the current dashboard until the safety flows move (S3c, C11). -->
-        <a class="pill" href="/#/recipes/{encodeURIComponent(slug)}">{t("next.load_there")}</a>
+        <button disabled={work.busy || !canLoad} onclick={() => act(() => load(slug), t("working.load"))}>{t("action.load")}</button>
+        <button class="quiet" disabled={work.busy}
+          onclick={async () => { if (info && await ask({ title: t("delete.title", { name: info.recipe.name }), body: t("delete.body"), yes: t("action.delete"), danger: true }))
+            act(async () => { await api("DELETE", `/api/recipes/${encodeURIComponent(slug)}`); location.hash = "#/recipes"; }); }}>
+          {t("action.delete")}</button>
       </div>
+      {#if !canLoad}<p class="muted">{t("recipe.load_hint")}</p>{/if}
       <section class="card">
         <h2>{t("card.plan")}</h2>
         <Chart lines={[{ key: "plan", kind: "plan", label: t("chart.plan"), points: planLine(info.plan) }]} />

@@ -1,7 +1,6 @@
 <script lang="ts">
-  // Read-only until the safety flows move (docs/PLAN.md, S3c, C11): no
-  // release or acquire here yet; the current dashboard at / keeps them.
   import { api, hub, hasToken } from "../lib/hub.svelte";
+  import { act, work, release, acquire, ask } from "../lib/actions.svelte";
   import { t, setLanguage, language, LANGUAGE_NAMES, locale } from "../lib/i18n.svelte";
   import { stateName, reasonText, cupText, tankText } from "../lib/words";
 
@@ -47,6 +46,18 @@
             </select>
           </dd>
         </dl>
+      </section>
+      <section class="card">
+        <h2>{t("console.share")}</h2>
+        <p class="muted">{t("console.share_hint")}</p>
+        <div class="actions">
+          {#if s.state === "released"}
+            <button disabled={work.busy} onclick={() => act(acquire)}>{t("action.acquire")}</button>
+          {:else}
+            <button class="quiet" disabled={work.busy || s.state === "brewing"}
+              onclick={async () => { if (await ask({ title: t("release.title"), body: t("release.body"), yes: t("action.release") })) act(release); }}>{t("action.release")}</button>
+          {/if}
+        </div>
       </section>
     </div>
     <div>

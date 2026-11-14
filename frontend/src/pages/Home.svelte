@@ -1,8 +1,8 @@
 <script lang="ts">
-  // "Now": what the machine is doing, as on the current dashboard. Until the
-  // safety flows move (docs/PLAN.md, S3c, C11) nothing here changes the
-  // machine: loading, starting and stopping are links to the current one.
+  // "Now": what the machine is doing, and the controls for it, as on the
+  // current dashboard. Every rule for those controls is in lib/actions.
   import { api, hub } from "../lib/hub.svelte";
+  import { act, work, ownLoad, load, start, stop, cancel, acquire, ask } from "../lib/actions.svelte";
   import { t } from "../lib/i18n.svelte";
   import { live } from "../lib/live.svelte";
   import { clock, whole, when, endingText } from "../lib/format";
@@ -53,7 +53,9 @@
     api<RecipeInfo>("GET", `/api/recipes/${encodeURIComponent(want)}/plan`)
       .then((answer) => { if (loadKey === key) plan = { key, info: answer }; }).catch(() => {});
   });
-  const info = $derived(plan && slug && plan.key.startsWith(`${slug}|`) ? plan.info : null);
+  // Only the plan fetched for this very load: right after a load again of the
+  // same recipe, the previous load's plan is not shown in the confirmation.
+  const info = $derived(plan && plan.key === loadKey ? plan.info : null);
 
   // ---- the brew that is running ---------------------------------------------
   const pourText = $derived.by(() => {
@@ -91,7 +93,7 @@
 {:else if name === "released"}
   <h1>{t("home.released")}</h1>
   <p class="muted">{t("home.released_hint")}</p>
-  <p><a class="pill" href="/#/">{t("next.act_there")}</a></p>
+  <div class="actions"><button disabled={work.busy} onclick={() => act(acquire)}>{t("action.acquire")}</button></div>
 
 {:else if name === "busy" && unheard(s)}
   <h1>{t("home.unheard")}</h1>
@@ -106,7 +108,7 @@
     <div class="done"><Icon name="pour" /><h1>{s.brew.recipe_name || t("brew.at_machine")}</h1></div>
     <span class="muted num">{pourText}</span>
   </div>
-  <div class="readouts">
+  <div class="readouts" id="live-readouts">
     <Readout value={clock(s.brew.elapsed_s)} label={t("readout.time")} />
     <Readout value={whole(s.water_ml)} label={t("readout.water")} series="water" />
     <Readout value={whole(s.weight_g)} label={t("readout.coffee")} series="coffee" />
@@ -114,8 +116,12 @@
   <div class="cols">
     <div>
       <Chart lines={liveLines} marks={live.marks} live />
-      <!-- Stop stays on the current dashboard until the safety flows move. -->
-      <p class="notice"><a href="/#/">{t("next.stop_there")}</a></p>
+      <!-- Not held behind another request, and the same element for the whole brew. -->
+      <div class="actions">
+        <button id="stop" class="danger" disabled={work.stopping}
+          onclick={async () => { if (!work.stopping && await ask({ title: t("stop.title"), body: t("stop.body"), yes: t("action.stop"), danger: true })) stop(); }}>
+          {t("action.stop")}</button>
+      </div>
     </div>
     {#if info}<div class="wide-only"><PoursList plan={info.plan} pours={info.recipe.pours} current={s.brew.pour ?? null} /></div>{/if}
   </div>
@@ -133,7 +139,18 @@
         </div>
         <section class="card"><RecipeFacts {info} /><dl class="facts"><dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd></dl></section>
       {/if}
-      <p><a class="pill" href="/#/">{t("next.start_there")}</a></p>
+      {#if !ownLoad()}<p class="notice">{t("armed.not_mine")}</p>{/if}
+      <div class="actions">
+        {#if ownLoad()}
+          <button disabled={work.busy || !info}
+            onclick={async () => { if (info && await ask({ title: t("start.title", { name: info.recipe.name }), body: t("start.body"), yes: t("action.start"), info })) act(start, t("working.start")); }}>
+            {t("action.start")}</button>
+        {:else}
+          <!-- The slug is read before the cancel: once it is answered the machine is at rest and the state has no recipe. -->
+          <button disabled={work.busy} onclick={() => { const again = s.recipe!.slug; act(async () => { await cancel(); await load(again); }, t("working.load")); }}>{t("action.reload")}</button>
+        {/if}
+        <button class="quiet" disabled={work.busy} onclick={() => act(cancel, t("working.cancel"))}>{t("action.cancel_load")}</button>
+      </div>
     </div>
     {#if info}
       <div class="wide-only">
