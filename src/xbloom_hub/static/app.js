@@ -304,7 +304,7 @@ async function act(fn, what) {
   document.body.dataset.busy = "";
   busy = true; flash = null; render();
   try { await fn(); } catch (error) { flash = { text: error.message, bad: true }; }
-  delete document.body.dataset.busy;
+  if (!stopping) delete document.body.dataset.busy;
   busy = false; render();
 }
 
@@ -315,7 +315,6 @@ function onSnapshot(next) {
     log.push([new Date(), next]);
     if (log.length > 200) log.shift();
   }
-  if (next.state !== "armed") ticket = null;
   const brew = next.brew;
   if (brew) {
     if (live.id !== brew.id) {
@@ -577,7 +576,7 @@ function viewHome() {
 function viewArmed() {
   const slug = state.recipe.slug;
   const info = plans.get(slug);
-  const mine = ticket && ticket.slug === slug;
+  const mine = ownLoad();
   const left = [];
   if (info) {
     const recipe = info.recipe;
@@ -624,13 +623,14 @@ function viewBrewing() {
   const parts = brewingParts();
   const info = state.brew.slug ? plans.get(state.brew.slug) : null;
   return [
+    h("div", { id: "brew-flash", "data-text": flash ? flash.text : "" }, flashNode()),
     h("div", { class: "row" }, h("div", { class: "done" }, iconSvg("pour"), h("h1", {}, state.brew.recipe_name || t("brew.at_machine"))),
       h("span", { class: "muted num", id: "live-pour" }, parts.pour)),
     h("div", { class: "readouts", id: "live-readouts" }, parts.readouts),
     h("div", { class: "cols" },
       h("div", {}, h("div", { id: "live-chart" }, parts.chart),
         // Not redrawn while the brew runs, so a press on it is never lost.
-        h("div", { class: "actions" }, button(t("action.stop"), "stop", { class: "danger", disabled: busy, on: { click: confirmStop } }))),
+        h("div", { class: "actions" }, button(t("action.stop"), "stop", { id: "stop", class: "danger", disabled: stopping, on: { click: confirmStop } }))),
       info ? h("div", { class: "wide-only" }, poursList(info, parts.index)) : null),
   ];
 }
@@ -640,6 +640,12 @@ function updateBrewing() {
   if (!pour) return false;
   const parts = brewingParts();
   pour.textContent = parts.pour;
+  const slot = document.getElementById("brew-flash"), message = flash ? flash.text : "";
+  if (slot && slot.dataset.text !== message) {
+    slot.dataset.text = message;
+    const node = flashNode();
+    slot.replaceChildren(...(node ? [node] : []));
+  }
   const shown = document.getElementById("live-readouts").children;
   parts.readouts.forEach((fresh, i) => swapDots(shown[i], fresh.querySelector("svg.dots")));
   document.getElementById("live-chart").replaceChildren(parts.chart);
@@ -651,10 +657,20 @@ function updateBrewing() {
   return true;
 }
 
+// Start is offered only while the load on the machine is the one this page
+// made, named by the hub's load id. The state and the load's answer arrive on
+// two channels in no fixed order, and states can be missed across a
+// reconnect or a hub restart; comparing ids needs neither order nor every
+// state. A ticket for any other load stays unusable here (the hub has voided
+// it too) until the next load from this page replaces it.
+function ownLoad() {
+  return Boolean(ticket && ticket.loadId && state && state.state === "armed" && state.load_id === ticket.loadId);
+}
+
 async function load(slug) {
   plans.delete(slug);       // what is about to be loaded is what the hub holds now
   const loaded = await api("POST", "/api/machine/load", { slug });
-  ticket = { slug, value: loaded.ticket };
+  ticket = { slug, value: loaded.ticket, loadId: loaded.load_id };
   location.hash = "#/";
 }
 
@@ -675,8 +691,23 @@ async function confirmStart(info) {
   }
 }
 
+// Stop is not held behind another request: a start can still be waiting for
+// its answer when the brew has already begun. The hub serialises stops
+// itself and refuses a second one while the first is on its way.
+let stopping = false;
+const setStopDisabled = (value) => { const node = document.getElementById("stop"); if (node) node.disabled = value; };
 async function confirmStop() {
-  if (await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) act(() => api("POST", "/api/machine/stop"), t("working.stop"));
+  if (stopping) return;
+  if (!(await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) || stopping) return;
+  stopping = true; flash = null;
+  setStopDisabled(true);
+  workingText.textContent = t("working.stop");
+  document.body.dataset.busy = "";
+  try { await api("POST", "/api/machine/stop"); } catch (error) { flash = { text: error.message, bad: true }; }
+  stopping = false;
+  setStopDisabled(false);
+  if (!busy) delete document.body.dataset.busy;
+  render();                                // while brewing, this updates in place
 }
 
 // On the home screen this sits beside two links, so it asks first.
@@ -1022,19 +1053,23 @@ function render() {
     const s = state || {};
     const slug = (s.recipe && s.recipe.slug) || (s.brew && s.brew.slug) || "";
     const shape = r.name === "home"
-      ? [s.state, s.error, slug, s.brew && s.brew.id, Boolean(ticket && ticket.slug === slug), Boolean(plans.get(slug)),
+      ? [s.state, s.error, slug, s.brew && s.brew.id, ownLoad(), Boolean(plans.get(slug)),
         s.cup, s.water_enough, library ? library.length : -1, lastBrew ? lastBrew.id : "", recent.length]
       : [s.state, s.error, s.activity, s.cup, s.water_enough, s.fw_version, log.length, gateRecent.length, token() ? 1 : 0];
-    const key = [r.name, busy, flash ? flash.text : "", LANGUAGE, ...shape].join("|");
+    // While a brew runs, only the brew changes the view: a request coming back
+    // (busy) or a message must not rebuild it, or Stop would be replaced
+    // under a press. Both are shown in place by updateBrewing().
+    const brewing = r.name === "home" && s.state === "brewing";
+    const key = [r.name, brewing ? "" : busy, brewing ? "" : (flash ? flash.text : ""), LANGUAGE, ...shape].join("|");
     if (key === last) {
-      if (r.name === "home" && s.state === "brewing") updateBrewing();
+      if (brewing) updateBrewing();
       else if (r.name === "home") updateScale();
       return;
     }
     // Do not rebuild the console under an open language menu.
     if (r.name === "console" && document.activeElement && document.activeElement.id === "language") return;
     last = key;
-    show(view, flashNode(), r.name === "home" ? viewHome() : viewConsole());
+    show(view, brewing ? null : flashNode(), r.name === "home" ? viewHome() : viewConsole());
   } else {
     // These fetch; redraw them when the address changes, not on every snapshot.
     const key = [location.hash, busy, flash ? flash.text : "", state ? state.state : "", LANGUAGE].join("|");

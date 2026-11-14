@@ -137,6 +137,10 @@ class Machine:
         brew = self._brew
         return {
             "state": self.state,
+            # Names the load that is on the machine now, not the ticket: a page
+            # holding a ticket offers Start only while this is its own load's.
+            # Random per load, so it survives no restart and repeats no earlier one.
+            "load_id": self._ticket["load_id"] if self._ticket else None,
             "activity": self._activity,
             "weight_g": self._weight,
             "water_ml": self._water,
@@ -506,7 +510,8 @@ class Machine:
             # One ticket per load. What it stands for cannot change under it:
             # a loaded recipe can be neither saved over nor deleted.
             ticket = secrets.token_urlsafe(16)
-            self._ticket = {"ticket": ticket, "expires": time.monotonic() + TICKET_TTL_S}
+            self._ticket = {"ticket": ticket, "expires": time.monotonic() + TICKET_TTL_S,
+                            "load_id": secrets.token_hex(8)}
             if not await self._wait_for(lambda: self.state == "armed", 5):
                 # The frames were accepted but the machine has not said it is
                 # waiting. Do not report a load, and do not keep the slug
@@ -538,12 +543,14 @@ class Machine:
                 raise BadTicket("this start ticket is not the one issued for the loaded recipe")
             if time.monotonic() > issued["expires"]:
                 self._ticket = None
+                self._publish()                 # its load_id goes from every page at once
                 raise BadTicket("the start ticket has expired; cancel and load again")
             if self._cup is False:
                 raise NoCup("the machine reported the cup was taken off")
             # Consumed before anything is sent: a start is never repeated.
             self._ticket = None
             self._started_at = time.monotonic()
+            self._publish()
             try:
                 with gate.start_permit():
                     # Only this task may write 8002, and only inside this

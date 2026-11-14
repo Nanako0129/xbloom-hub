@@ -21,7 +21,11 @@ dependencies = [
 xbloom-hub = "xbloom_hub.__main__:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "pytest-playwright==0.7.1",
+]
 
 [tool.uv]
 # cryptography has no wheel aioesphomeapi accepts on Intel macOS, so a
@@ -37,3 +41,6 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Browser tests start a browser; run them with -m browser (tests/browser/conftest.py).
+markers = ["browser: needs a browser and starts a simulator hub"]
+addopts = "-m 'not browser'"

@@ -851,8 +851,9 @@ new with this slice; the hand-written page had no third-party code.
   and is sent only in the `Authorization` header.
 - Safety invariants 1 and 3: start is a REST call with a confirmation that
   shows the recipe as the hub holds it when the machine armed; the ticket
-  stays in memory, is dropped when the machine leaves the armed state, and
-  is kept only after a `no_cup` refusal; Stop is never disabled or replaced
+  stays in memory, Start is offered only while the hub's `load_id` is the
+  one the page's own load returned, and a `no_cup` refusal keeps the ticket
+  usable; Stop is never disabled or replaced
   by a redraw while a brew runs; one request at a time.
 
 **Security dispositions for this slice.** Reviewed read-only on 2026-11-14:
@@ -891,9 +892,11 @@ WebKit download the same day.
    - Stop is not replaced: during a brew a handle is taken on the Stop
      element, several snapshots pass, and it is the same connected node,
      still enabled;
-   - the ticket goes when the machine leaves the armed state: the page loads
-     (so it holds a ticket), then the same slug is cancelled and loaded
-     again through REST, and the page shows "load again" and no Start;
+   - Start only for the page's own load: the page loads (so it holds a
+     ticket), then the same slug is cancelled and loaded again through
+     REST, and the page shows "load again" and no Start. The page tells
+     its own load by the hub's public `load_id` (one per load, random),
+     not by arrival order, which two channels do not guarantee;
    - the start confirmation shows the recipe as the hub returns it: the
      dialog's name, dose, total water, pour count with end time, and grind
      (what the old dialog shows) equal the hub's `plan` answer for that
@@ -901,7 +904,7 @@ WebKit download the same day.
    Each of these four is shown to fail when the line it guards is removed
    from a copy of the old `app.js` (for one request at a time, the whole
    guard: the `busy` early return in `act()` and the `disabled: busy` on
-   Start and Load, so that two POSTs reach the hub; the stable Stop node, the ticket drop on leaving the armed state,
+   Start and Load, so that two POSTs reach the hub; the stable Stop node, the load-id comparison,
    `recipeFacts(info)` in the confirmation), and to pass on the old page as
    it is. The rest of the list: the recipe editor saves, refuses a taken id, keeps typing after
    a refusal; history, a record, compare; the console; both languages; no

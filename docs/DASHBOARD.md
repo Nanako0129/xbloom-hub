@@ -98,3 +98,24 @@ name: it is not translated.
 - A recipe's source becomes a link only if it starts with `https://`.
 - The event stream and the read-only addresses need no token and carry no
   ticket and no serial number.
+
+## Browser tests
+
+`tests/browser/` drives the page in a real browser against a simulator hub
+that the test starts in its own process, with a throwaway token and data
+directory. They are left out of the default `pytest` run; run them with:
+
+```sh
+uv run playwright install chromium webkit     # once
+uv run pytest tests/browser -m browser --browser chromium --browser webkit
+```
+
+Every test fails on a Content-Security-Policy violation, a script error or an
+unhandled rejection in the page. Six of them hold the page's safety
+behaviour: one request at a time; Stop working while a start is still
+waiting for its answer; that answer, arriving mid-brew, leaving Stop alone;
+Stop the same element through a brew; Start offered only while the machine
+holds this page's own load, told by the hub's public `load_id`; and the start
+confirmation showing the recipe as the hub holds it.
+`tools/browser_mutations.py` takes each guard out of a copy of the page and
+checks that its test then fails.
