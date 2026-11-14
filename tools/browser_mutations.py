@@ -13,6 +13,7 @@ below are redone for the new code.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -35,12 +36,15 @@ GUARDS = {
     "Stop not held behind a start": ("test_stop_is_not_held_behind_a_start", [
         ('{ id: "stop", class: "danger", disabled: stopping,', '{ id: "stop", class: "danger", disabled: busy || stopping,'),
     ]),
+    "a start's answer does not rebuild the brewing view": ("test_stop_is_not_held_behind_a_start", [
+        ('brewing ? "" : busy, brewing ? "" : (flash ? flash.text : "")', 'busy, flash ? flash.text : ""'),
+    ]),
     "Stop is one node through a brew": ("test_stop_is_the_same_node_through_a_brew", [
         # Rebuild the view on every snapshot, as a careless rewrite would.
         ('? [s.state, s.error, slug, s.brew && s.brew.id,', '? [s.state, s.error, slug, s.brew && s.brew.elapsed_s,'),
     ]),
     "the ticket goes when the machine leaves armed": ("test_the_ticket_goes_when_the_machine_leaves_armed", [
-        ('  if (next.state !== "armed") ticket = null;\n', ""),
+        ("  else if (ticket && ticket.seenArmed) ticket = null;\n", ""),
     ]),
     "the confirmation shows the hub's recipe": ("test_the_confirmation_shows_the_recipe_the_hub_holds", [
         ('const body = [h("p", {}, t("start.body")), recipeFacts(info), ', 'const body = [h("p", {}, t("start.body")), '),
@@ -49,7 +53,7 @@ GUARDS = {
 
 
 def run(test: str, static: Path | None, browser: str) -> bool:
-    env = {**__import__("os").environ}
+    env = {**os.environ}
     if static is not None:
         env["XBLOOM_TEST_STATIC_DIR"] = str(static)
     done = subprocess.run(
@@ -63,9 +67,11 @@ def main() -> int:
     parser.add_argument("--browser", default="chromium")
     browser = parser.parse_args().browser
     held = True
+    # Each test once against the page as it is: it must pass there.
+    baseline = {test: run(test, None, browser) for test, _ in GUARDS.values()}
     with tempfile.TemporaryDirectory(prefix="xbloom-mutant-") as tmp:
-        for name, (test, edits) in GUARDS.items():
-            copy = Path(tmp) / test
+        for number, (name, (test, edits)) in enumerate(GUARDS.items()):
+            copy = Path(tmp) / f"guard-{number}"
             shutil.copytree(STATIC, copy)
             script = (copy / "app.js").read_text(encoding="utf-8")
             for old, new in edits:
@@ -77,7 +83,7 @@ def main() -> int:
             else:
                 (copy / "app.js").write_text(script, encoding="utf-8")
                 without = run(test, copy, browser)
-                with_guard = run(test, None, browser)
+                with_guard = baseline[test]
                 ok = (not without) and with_guard
                 held &= ok
                 print(f"{'HELD' if ok else 'NOT HELD':9} {name}: without the guard "

@@ -7,11 +7,13 @@ of the page; the record of that is in the pull request that added them.
 from __future__ import annotations
 
 import re
-import time
 
+import pytest
 from playwright.sync_api import expect
 
 from .conftest import HOSTILE, RECIPES, TOKEN
+
+pytestmark = pytest.mark.browser
 
 
 def go(page, hub, hash_: str) -> None:
@@ -87,6 +89,14 @@ def test_stop_is_not_held_behind_a_start(ui, hub):
     hub.wait_state("brewing")
     stop = ui.locator("#stop")
     expect(stop).to_be_enabled()
+    # The start's answer arriving mid-brew must not replace or disable Stop.
+    handle = stop.element_handle()
+    for route in held:
+        route.continue_()
+    held.clear()
+    ui.wait_for_function("() => !('busy' in document.body.dataset)")
+    ui.wait_for_timeout(500)
+    assert handle.evaluate("(e) => e.isConnected && !e.disabled")
     stops = requests_to(ui, "/api/machine/stop")
     stop.click()
     confirm(ui)
@@ -116,6 +126,8 @@ def test_the_ticket_goes_when_the_machine_leaves_armed(ui, hub):
     load_from_page(ui, hub, "short")
     assert hub.api("POST", "/api/machine/cancel").status_code == 200
     hub.wait_state("idle")
+    # The page has seen the machine leave the recipe screen.
+    expect(ui.get_by_role("heading", name="Ready to brew")).to_be_visible()
     assert hub.api("POST", "/api/machine/load", {"slug": "short"}).status_code == 200
     hub.wait_state("armed")
     expect(ui.get_by_role("button", name="Load again")).to_be_visible()
@@ -256,14 +268,15 @@ def test_the_console_lists_what_was_written(ui, hub):
 
 
 def test_both_languages_have_every_word(ui, hub):
-    for language, tab in (("zh-Hant", "食譜"), ("en", "Recipes")):
+    for language, tab in (("zh-Hant", "配方"), ("en", "Recipes")):
         ui.evaluate("(l) => localStorage.setItem('xbloom-hub-lang', l)", language)
         ui.reload()
         ui.wait_for_selector("#machine .state")
         expect(ui.locator("#tabs")).to_contain_text(tab)
         for hash_ in ("#/", "#/recipes", "#/recipes/short", "#/history", "#/console"):
             go(ui, hub, hash_)
-            time.sleep(0.3)
+            ui.wait_for_function("() => !document.getElementById('view').innerText.includes(t('loading'))")
+            ui.wait_for_timeout(200)
             text = ui.locator("body").inner_text()
             for planted in (HOSTILE, *RECIPES["hostile"]["meta"].values()):
                 text = text.replace(planted, "")

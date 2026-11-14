@@ -40,12 +40,6 @@ HERE = Path(__file__).parent
 HOSTILE = '<img src=x onerror="window.__pwned=1">{a|b}'
 
 
-def pytest_collection_modifyitems(config, items):
-    for item in items:
-        if HERE in Path(str(item.fspath)).parents:
-            item.add_marker(pytest.mark.browser)
-
-
 def _pour(volume, pause=0):
     return {"volume_ml": volume, "temperature_c": 20, "pause_s": pause, "pattern": 2,
             "flow_rate": 3.0, "agitate_before": 2, "agitate_after": 2}
@@ -171,6 +165,8 @@ def hub(tmp_path, monkeypatch):
     yield hub
     server.should_exit = True
     thread.join(10)
+    assert not thread.is_alive(), "the simulator hub did not stop"
+    loop.close()
 
 
 # Every problem the page reports, from every document it loads: a CSP

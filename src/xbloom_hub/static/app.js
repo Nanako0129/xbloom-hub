@@ -304,7 +304,7 @@ async function act(fn, what) {
   document.body.dataset.busy = "";
   busy = true; flash = null; render();
   try { await fn(); } catch (error) { flash = { text: error.message, bad: true }; }
-  delete document.body.dataset.busy;
+  if (!stopping) delete document.body.dataset.busy;
   busy = false; render();
 }
 
@@ -315,7 +315,11 @@ function onSnapshot(next) {
     log.push([new Date(), next]);
     if (log.length > 200) log.shift();
   }
-  if (next.state !== "armed") ticket = null;
+  // The ticket goes when the machine leaves the recipe screen. A snapshot
+  // from before the load can still arrive after the load's answer; it says
+  // nothing about this ticket, so only a departure seen after arriving counts.
+  if (ticket && next.state === "armed") ticket.seenArmed = true;
+  else if (ticket && ticket.seenArmed) ticket = null;
   const brew = next.brew;
   if (brew) {
     if (live.id !== brew.id) {
@@ -624,6 +628,7 @@ function viewBrewing() {
   const parts = brewingParts();
   const info = state.brew.slug ? plans.get(state.brew.slug) : null;
   return [
+    h("div", { id: "brew-flash" }, flashNode()),
     h("div", { class: "row" }, h("div", { class: "done" }, iconSvg("pour"), h("h1", {}, state.brew.recipe_name || t("brew.at_machine"))),
       h("span", { class: "muted num", id: "live-pour" }, parts.pour)),
     h("div", { class: "readouts", id: "live-readouts" }, parts.readouts),
@@ -640,6 +645,12 @@ function updateBrewing() {
   if (!pour) return false;
   const parts = brewingParts();
   pour.textContent = parts.pour;
+  const slot = document.getElementById("brew-flash"), message = flash ? flash.text : "";
+  if (slot && slot.dataset.text !== message) {
+    slot.dataset.text = message;
+    const node = flashNode();
+    slot.replaceChildren(...(node ? [node] : []));
+  }
   const shown = document.getElementById("live-readouts").children;
   parts.readouts.forEach((fresh, i) => swapDots(shown[i], fresh.querySelector("svg.dots")));
   document.getElementById("live-chart").replaceChildren(parts.chart);
@@ -654,7 +665,10 @@ function updateBrewing() {
 async function load(slug) {
   plans.delete(slug);       // what is about to be loaded is what the hub holds now
   const loaded = await api("POST", "/api/machine/load", { slug });
-  ticket = { slug, value: loaded.ticket };
+  // The armed snapshot may already have arrived, before this answer: the
+  // hub publishes on change, so it will not come again.
+  const armedNow = Boolean(state && state.state === "armed" && state.recipe && state.recipe.slug === slug);
+  ticket = { slug, value: loaded.ticket, seenArmed: armedNow };
   location.hash = "#/";
 }
 
@@ -679,17 +693,19 @@ async function confirmStart(info) {
 // its answer when the brew has already begun. The hub serialises stops
 // itself and refuses a second one while the first is on its way.
 let stopping = false;
+const setStopDisabled = (value) => { const node = document.getElementById("stop"); if (node) node.disabled = value; };
 async function confirmStop() {
+  if (stopping) return;
   if (!(await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) || stopping) return;
-  stopping = true;
-  const node = document.getElementById("stop");
-  if (node) node.disabled = true;          // the same node: it is never rebuilt during a brew
+  stopping = true; flash = null;
+  setStopDisabled(true);
   workingText.textContent = t("working.stop");
   document.body.dataset.busy = "";
-  try { await api("POST", "/api/machine/stop"); } catch (error) { flash = { text: error.message, bad: true }; last = ""; }
+  try { await api("POST", "/api/machine/stop"); } catch (error) { flash = { text: error.message, bad: true }; }
   stopping = false;
-  if (node) node.disabled = false;
+  setStopDisabled(false);
   if (!busy) delete document.body.dataset.busy;
+  updateBrewing();
   render();
 }
 
@@ -1039,16 +1055,20 @@ function render() {
       ? [s.state, s.error, slug, s.brew && s.brew.id, Boolean(ticket && ticket.slug === slug), Boolean(plans.get(slug)),
         s.cup, s.water_enough, library ? library.length : -1, lastBrew ? lastBrew.id : "", recent.length]
       : [s.state, s.error, s.activity, s.cup, s.water_enough, s.fw_version, log.length, gateRecent.length, token() ? 1 : 0];
-    const key = [r.name, busy, flash ? flash.text : "", LANGUAGE, ...shape].join("|");
+    // While a brew runs, only the brew changes the view: a request coming back
+    // (busy) or a message must not rebuild it, or Stop would be replaced
+    // under a press. Both are shown in place by updateBrewing().
+    const brewing = r.name === "home" && s.state === "brewing";
+    const key = [r.name, brewing ? "" : busy, brewing ? "" : (flash ? flash.text : ""), LANGUAGE, ...shape].join("|");
     if (key === last) {
-      if (r.name === "home" && s.state === "brewing") updateBrewing();
+      if (brewing) updateBrewing();
       else if (r.name === "home") updateScale();
       return;
     }
     // Do not rebuild the console under an open language menu.
     if (r.name === "console" && document.activeElement && document.activeElement.id === "language") return;
     last = key;
-    show(view, flashNode(), r.name === "home" ? viewHome() : viewConsole());
+    show(view, brewing ? null : flashNode(), r.name === "home" ? viewHome() : viewConsole());
   } else {
     // These fetch; redraw them when the address changes, not on every snapshot.
     const key = [location.hash, busy, flash ? flash.text : "", state ? state.state : "", LANGUAGE].join("|");
