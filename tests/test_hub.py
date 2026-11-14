@@ -549,3 +549,23 @@ def test_name_cannot_be_only_invisible_characters():
     with pytest.raises(RecipeInvalid) as err:
         checked({**RECIPE, "name": "\u200d\u200c"})
     assert "name" in err.value.errors
+
+
+
+def test_creating_a_recipe_never_replaces_a_file(tmp_path):
+    from xbloom_hub.recipes import RecipeExists, RecipeStore
+    store = RecipeStore(tmp_path)
+    recipe = {"name": "A", "cup_type": 2, "dose_g": 15, "ratio": "1:15", "grind": True, "grind_size": 60,
+              "grinder_speed_rpm": 80, "pours": [{"volume_ml": 225, "temperature_c": 92, "pause_s": 0,
+              "pattern": 2, "flow_rate": 3.0, "agitate_before": 2, "agitate_after": 2}]}
+    store.put("a", recipe, create=True)
+    (tmp_path / "handmade.yaml").write_text("not: a recipe\n")          # fails the check
+    for slug in ("a", "handmade"):
+        try:
+            store.put(slug, {**recipe, "name": "B"}, create=True)
+        except RecipeExists:
+            pass
+        else:
+            raise AssertionError(f"{slug} was replaced")
+    assert (tmp_path / "handmade.yaml").read_text() == "not: a recipe\n"
+    assert store.put("a", {**recipe, "name": "C"})["name"] == "C"      # an edit still replaces

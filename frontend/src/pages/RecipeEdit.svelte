@@ -13,6 +13,7 @@
   let { slug, from }: { slug: string | null; from: string | null } = $props();
 
   const MAX_POURS = 9;            // the machine's limit (xbloom-py spec)
+  const NAME_MAX = 80;            // the hub's limit (recipes.py NAME_MAX)
   const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
   const blankPour = (): Pour => ({ volume_ml: 45, temperature_c: 92, pause_s: 30, pattern: 2, flow_rate: 3, agitate_before: 2, agitate_after: 2 });
@@ -36,9 +37,10 @@
     api<Recipe>("GET", `/api/recipes/${encodeURIComponent(source)}`).then((stored) => {
       if (!current) return;
       const base = blank();
-      draft = { ...base, ...stored, ratio: Number(String(stored.ratio).split(":")[1]),
+      const ratio = Number(String(stored.ratio).split(":").pop());
+      draft = { ...base, ...stored, ratio: Number.isFinite(ratio) ? ratio : null,
         pours: stored.pours.map((pour) => ({ ...pour })), meta: { ...base.meta, ...(stored.meta ?? {}) } };
-      if (!slug && draft) draft.name = t("edit.copy_of", { name: stored.name });
+      if (!slug && draft) draft.name = t("edit.copy_of", { name: stored.name }).slice(0, NAME_MAX);
     }).catch((error) => { if (current) failed = error.message; });
     return () => { current = false; };
   });
@@ -59,22 +61,19 @@
     if (!draft || saving) return;
     saving = true; errors = null;
     try {
-      const target = slug ?? id.trim();
-      if (!slug) {
-        // A new recipe gets an id of its own: well formed, not "new", not taken.
-        if (!SLUG.test(target) || target === "new") { errors = { slug: "bad_slug" }; return; }
-        const taken = await api("GET", `/api/recipes/${encodeURIComponent(target)}`).then(() => true,
-          (error: HubError) => { if (error.code === "not_found") return false; throw error; });
-        if (taken) { errors = { slug: "in_use" }; return; }
-      }
+      const dest = slug ?? id.trim();
+      // A new recipe gets an id of its own: well formed and not "new"; the hub
+      // refuses one that is taken (?create=1), so nothing is ever replaced.
+      if (!slug && (!SLUG.test(dest) || dest === "new")) { errors = { slug: "bad_slug" }; return; }
+      if (!Number.isFinite(Number(draft.ratio)) || draft.ratio === null) { errors = { ratio: "ratio_invalid" }; return; }
       const meta = Object.fromEntries(Object.entries(draft.meta).filter(([, value]) => value.trim()));
       const body: Record<string, unknown> = { ...$state.snapshot(draft), ratio: `1:${draft.ratio}` };
       if (Object.keys(meta).length) body.meta = meta; else delete body.meta;
-      await api("PUT", `/api/recipes/${encodeURIComponent(target)}`, body);
-      location.hash = `#/recipes/${encodeURIComponent(target)}`;
+      await api("PUT", `/api/recipes/${encodeURIComponent(dest)}${slug ? "" : "?create=1"}`, body);
+      location.hash = `#/recipes/${encodeURIComponent(dest)}`;
     } catch (error) {
       const e = error as HubError;
-      errors = e.fields ?? { [e.code ?? "error"]: e.message };
+      errors = e.code === "recipe_exists" ? { slug: "in_use" } : e.fields ?? { [e.code ?? "error"]: e.message };
     } finally {
       saving = false;
     }

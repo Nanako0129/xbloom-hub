@@ -7,7 +7,7 @@ from xbloom.ble import CommandRefused, CommandUnanswered
 from .brews import BadBrewId
 from .gate import GateRefused
 from .machine import BadTicket, CancelFailed, NoCup, NotReady
-from .recipes import BadSlug, RecipeInvalid
+from .recipes import BadSlug, RecipeExists, RecipeInvalid
 
 
 class RecipeLoaded(RuntimeError):
@@ -18,6 +18,7 @@ class RecipeLoaded(RuntimeError):
 TABLE: dict[type[Exception], tuple[int, str]] = {
     BadSlug: (400, "bad_slug"),
     RecipeInvalid: (422, "recipe_invalid"),
+    RecipeExists: (409, "recipe_exists"),
     BadBrewId: (400, "bad_brew_id"),
     NotReady: (409, "not_ready"),
     BadTicket: (403, "bad_ticket"),

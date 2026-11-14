@@ -2,6 +2,9 @@
 // docs/PLAN.md, S3c: the token arrives once in the address, is kept in
 // localStorage, and is sent only in the Authorization header (C10).
 
+import { MESSAGES } from "./messages";
+import { t } from "./i18n.svelte";
+
 const TOKEN_KEY = "xbloom-hub-token";
 
 // Take the token out of the address: before anything reads it, and again if
@@ -30,9 +33,15 @@ export class HubError extends Error {
   }
 }
 
+// The hub's error as the person reads it: its own words when the dictionary
+// has them, else the status.
+function describeError(code: string | undefined, status: number): string {
+  return code && MESSAGES.en[`error.${code}`] ? t(`error.${code}`) : status ? t("error.http", { status }) : t("error.no_hub");
+}
+
 // Paths are absolute and under /api only: the page may be served from /next/.
 export async function api<T = unknown>(method: string, path: string, body?: unknown,
-  describe?: (code: string | undefined, status: number) => string): Promise<T> {
+  describe: (code: string | undefined, status: number) => string = describeError): Promise<T> {
   if (!path.startsWith("/api/")) throw new Error(`not a hub path: ${path}`);
   const headers: Record<string, string> = {};
   const options: RequestInit = { method, headers };
@@ -42,12 +51,12 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
     options.body = JSON.stringify(body);
   }
   let response: Response;
-  try { response = await fetch(path, options); } catch { throw new HubError(describe?.("no_hub", 0) ?? "no hub", "no_hub"); }
+  try { response = await fetch(path, options); } catch { throw new HubError(describe("no_hub", 0), "no_hub"); }
   let data: any = null;
   try { data = await response.json(); } catch { /* no body */ }
   if (!response.ok) {
     const code = data?.error;
-    throw new HubError(describe?.(code, response.status) ?? `HTTP ${response.status}`, code, data?.fields);
+    throw new HubError(describe(code, response.status), code, data?.fields);
   }
   return data as T;
 }
