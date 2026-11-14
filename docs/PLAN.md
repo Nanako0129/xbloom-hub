@@ -975,44 +975,106 @@ and where to pair it, instead of a bare "unauthorized".
 **Scope.**
 
 - Hub: `POST /api/pair/start` (token required) creates a pairing code:
-  `secrets.token_urlsafe(16)`, kept only as its SHA-256 with an expiry of
-  5 minutes, at most 3 alive at once (a fourth replaces the oldest), and
-  answers `{code, expires_in_s}`. `POST /api/pair/claim` with `{code}` (no
-  token; inside the allowed networks like everything else) answers
-  `{token}` if the code is alive, and forgets it at once: single use. A
-  wrong, used or expired code is `403 bad_pairing_code`, the same answer in
-  every case. Codes live in memory; a hub restart voids them.
+  `secrets.token_urlsafe(16)` (22 characters), kept only as its SHA-256
+  with an expiry of 2 minutes on `time.monotonic()`. **One code alive at a
+  time**: a new start voids the previous one. It answers
+  `{code, expires_in_s}`. `POST /api/pair/cancel` (token required) voids
+  it. `POST /api/pair/status` (token required) answers
+  `{state: "waiting" | "claimed" | "none"}`, so the QR panel can say
+  "paired" and close; the code is not in it.
+- `POST /api/pair/claim` with `{code}` (no token; inside the allowed
+  networks and behind the Host check like everything else) answers
+  `{token}` if the code is alive, and forgets it at once: single use. The
+  check and the forgetting happen in one step with no `await` between
+  them, so two claims racing for one code cannot both win (the hub runs
+  one worker; codes live in its memory, and a restart voids them). The
+  claim's body is capped at 1 KiB and refused before it is read in full: a
+  `Content-Length` over the cap, or a body (chunked or not) that passes
+  the cap while being read, is `413 body_too_large` and the rest is not
+  read. The code must match `^[A-Za-z0-9_-]{22}$`; a wrong, malformed,
+  used or expired code is `403 bad_pairing_code`, the same answer in every
+  case. Each claim, won or lost, writes one log line with the client
+  address and the outcome, and neither the code nor the token.
+- The Guard's token exemption is exact: method `POST` and path
+  `/api/pair/claim`, nothing else (`POST /api/pair/claim/` and
+  `POST /api/pair/startx` still need the token). Reads stay open as they
+  are, so `GET /api/pair/claim` needs no token; the claim route takes only
+  POST, so a GET reaches no claim handler: it gets no token and does not
+  use up a live code. The Origin check still applies to the claim.
 - Page: the console's "add a device" calls start and draws the QR code of
   `<this page's origin>/#p=<code>`, with the expiry counting down and a
-  button to close it; closing it does not void the code (it expires). The
-  page reads `#p=` like `#t=`: before routing, out of the address with
-  `history.replaceState`, then claims it and keeps the token. A control
-  answered 401 shows "this device is not paired" with how to pair.
-- The QR code is drawn by a small library, `qrcode-generator`, pinned and
-  added to the bundle allow-list, rendered as SVG elements the page
-  builds (no `innerHTML`, no data URI), under the CSP as it is.
+  button to close it; closing it calls cancel. While it is open the panel
+  asks status every 2 s and shows "paired" when the code was claimed. On a
+  loopback hostname (`localhost`, any `127.x.x.x`, `[::1]`) the panel
+  still draws the QR code (another browser on the same computer can use
+  it) and says above it that a phone cannot open this address and that
+  the page should be opened at the hub's network address first.
+- The page reads `#p=` like `#t=`, at module load and synchronously: only
+  the exact form `^#p=([A-Za-z0-9_-]{22})$` counts, the address is cleared
+  with `history.replaceState` before anything else runs, then it claims.
+  A claim that fails leaves a token the page already holds untouched and
+  says the code was used or expired. A control answered 401 shows "this
+  device is not paired" with where to pair (the console of a paired
+  device).
+- The QR code is drawn by `qrcode-generator@2.0.4`, installed with
+  `frontend/npm.sh install` (exact pin, `ignore-scripts`), added to the C3
+  list and to the bundle allow-list, checked as in C4 (registry signature;
+  it has no provenance, which is recorded), imported through its ESM
+  entry. The page draws the modules as SVG `rect` elements from `isDark`
+  only: no `innerHTML`, no `createSvgTag`/`createDataURL`, no data URI,
+  under the CSP as it is.
 
 **Non-goals.** One token per device and revoking one (the hub has one
 token; recorded as a later improvement); pairing from outside the allowed
 networks; a pairing code typed by hand.
 
 **What must stay true.** The token is never in a QR code, an address, a
-log or a response other than the claim's. A code is useless after one
-claim, after 5 minutes and after a restart. Starting a pairing needs the
-token. The claim is subject to the network check and the Host check like
-every route.
+log or a response other than the claim's. The code is never in a GET
+answer, the event stream, a log line or an error. A code is useless after
+one claim, after 2 minutes, after a newer start or a cancel, and after a
+restart. Starting, cancelling and asking status need the token. The claim
+is subject to the network check, the Host check and the Origin check like
+every write.
 
-**Acceptance.** Hub tests: start needs the token; a code claims once and
-then fails; an expired code fails; a fourth code voids the first; the
-answer for wrong, used and expired codes is identical; the token is not in
-the start answer; codes are not kept in clear. Browser tests (Chromium and
-WebKit): a paired page starts a pairing and shows a QR code; a second,
-fresh browser context opens the pairing address and can then load a
-recipe; the address no longer holds the code; an unpaired context pressing
-Load sees the "not paired" message; no CSP violation. On the owner's phone:
-scan, then load the 25 ml test recipe.
+**Security dispositions for this slice** (security review of 2026-11-14,
+no P0 or P1):
 
-**Rollback.** Two routes, one page section, one dependency.
+| # | Finding | Disposition |
+|---|---|---|
+| S3d-1 (P2) | A loose Guard exemption (prefix match) would open other routes | FIX: exact `(POST, /api/pair/claim)`; tests: `POST /api/pair/claim/` and `POST /api/pair/startx` without the token are 401; a claim with a foreign Origin is 403; a `GET /api/pair/claim` while a code is alive is not 2xx, holds no token, and the code still wins one POST claim afterwards |
+| S3d-2 | Claim input unbounded; failures could tell cases apart | FIX: 1 KiB body cap, 22-character pattern, one 403 for all. No rate limit: a 128-bit code alive 2 minutes cannot be guessed, and the claim is only reachable from the allowed networks |
+| S3d-3 | Two claims racing could both win | FIX: check and forget in one step with no `await`; `time.monotonic()`; one worker; a concurrent-claim test |
+| S3d-4 | Several live codes widen the window | FIX: one alive code, a new start voids it, closing the panel cancels it, 2 minutes |
+| S3d-5 | A claim by someone else on the LAN would go unnoticed | FIX: claims logged with the client address; the panel shows "paired" via status. ACCEPT: the hub has one token, so a guest on the network who scans a code shown to them gets full control, as the owner chose by showing it; rotating the token (restart with a new one) is documented |
+| S3d-6 | The code could leak through reads | FIX: never in GET, SSE, logs or errors; a test reads them all after a start |
+| S3d-7 | A new dependency in the bundle | FIX: as written in scope (npm.sh, pin, C3, allow-list, C4, ESM, `isDark` only) |
+| S3d-8 | The `#p=` handling could keep a code in history or drop a good token | FIX: exact pattern, cleared synchronously, a failed claim keeps the token. On a loopback hostname: CHANGED from "no QR code" to a warning above the QR code. Reason: the suggestion was about usability, not exposure (a phone opening a loopback address reaches only itself, and the code is single-use and lives 2 minutes); and the browser tests, which reach the hub only at `127.0.0.1` in both Chromium and WebKit, need the QR panel there |
+| S3d-9 | Notes | RECORD: a scanner app may keep the address in its history (the code is single-use and short-lived, so that is harmless once claimed or expired); in S4's container the client address the hub sees may be the bridge gateway, which the network check and the claim log must be re-read for |
+
+**Acceptance.** Hub tests: start, cancel and status need the token; a code
+claims once and then fails; an expired code fails; a new start voids the
+previous code; cancel voids it; the answer for wrong, malformed, used and
+expired codes is identical; two concurrent claims of one code give one
+token; the Guard exemption is exact (the near-miss requests in S3d-1, the GET
+among them answering no token and leaving the code usable);
+the token is not in the start answer; codes are not kept in clear; after a
+start the code appears in no GET answer, event and log line; a claim body
+over 1 KiB gets `413 body_too_large`, both with a `Content-Length` and
+chunked without one; a won claim and a lost claim each write one log line
+that holds the client address and holds neither the code nor the token. Browser tests
+(Chromium and WebKit), against the test hub at `http://127.0.0.1:<port>`
+as it is: a paired page starts a pairing and shows a QR code, with the
+loopback warning above it (seen at `127.0.0.1`);
+a second, fresh browser context opens the pairing address and can then
+load a recipe; the address no longer holds the code; the first page's
+panel then says "paired"; a failed claim keeps an existing token; an
+unpaired context pressing Load sees the "not paired" message; no CSP
+violation. On the owner's phone, with the console opened at the Mac's
+network address: no loopback warning, scan, then load the 25 ml test
+recipe.
+
+**Rollback.** Four routes and the Guard exemption, one page section, one
+dependency; revert the merge.
 
 **Stops.** The QR library needs inline styles, `eval` or `innerHTML` to
 draw: stop and ask.
