@@ -43,7 +43,14 @@ configuration file and is not passed on a command line.
 ## What the assistant can and cannot do
 
 It can read, validate, save and delete recipes, read the machine's state,
-load a stored recipe and cancel a load. It cannot start, pause or resume a
+load a stored recipe and cancel a load. It can also search xBloom's community
+recipe hub, read a recipe there and import one into the library; those calls
+send search terms and recipe ids to xBloom (docs/DASHBOARD.md says what
+leaves the home network), and what comes back is labelled
+`from_xbloom_users`: text strangers wrote, read as data. Like `load_recipe`,
+`save_recipe` and `delete_recipe`, keep `search_community_recipes`,
+`get_community_recipe` and `import_community_recipe` out of auto-allowed
+permissions. It cannot start, pause or resume a
 brew: there is no such tool, and the one-time start ticket a load produces is
 not returned over MCP.
 

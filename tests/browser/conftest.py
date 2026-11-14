@@ -22,12 +22,14 @@ import time
 from pathlib import Path
 
 import httpx
+import httpx2
 import pytest
 import uvicorn
 import yaml
 
 from xbloom_hub import app as hub_app
 from xbloom_hub.brews import BrewStore
+from xbloom_hub.community import Community
 from xbloom_hub.machine import Machine
 from xbloom_hub.recipes import RecipeStore
 from xbloom_hub.sim import SimListener, SimRadio
@@ -135,6 +137,53 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+# xBloom's community hub, faked: never the network. Recipe 4242 imports;
+# 5151 uses bypass water and does not. Field names as in tests/test_community.py.
+def _vo(name, bypass):
+    return {"theName": name, "cupType": 2, "dose": 15, "grandWater": 16, "isSetGrinderSize": 2,
+            "grinderSize": 60, "rpm": 90, "pourCount": 2, "isEnableBypassWater": bypass,
+            "podsVo": None, "pourList": [
+                {"volume": 40, "temperature": 93, "pattern": 2, "flowRate": 3.0, "pausing": 30,
+                 "isEnableVibrationBefore": 1, "isEnableVibrationAfter": 2},
+                {"volume": 200, "temperature": 92, "pattern": 2, "flowRate": 3.5, "pausing": 0,
+                 "isEnableVibrationBefore": 2, "isEnableVibrationAfter": 2}]}
+
+
+_SIDS = {4242: "AAAAAAAAAAAAAAAAAAAAAA==", 5151: "BBBBBBBBBBBBBBBBBBBBBB=="}
+_SHARES = {_SIDS[4242]: _vo("Kenya <b>AA</b>", 2), _SIDS[5151]: _vo("Bypass blend", 1)}
+
+
+def _card(recipe_id, name, official):
+    return {"communityRecipeId": recipe_id, "recipeName": name, "userName": "<i>someone</i>",
+            "official": official, "model": "Studio", "cupTypeInt": 2, "type": "Single Origin",
+            "origin": ["Kenya"], "varietal": ["SL28"], "process": ["Washed"], "flavor": [],
+            "roast": 1, "dose": 15, "grandWater": 16, "grinderSize": 60, "rpm": 90,
+            "pourCount": 2, "volume": "240", "likesCount": 3,
+            "shareRecipeLink": "https://share-h5.xbloom.com/?id=" + _SIDS[recipe_id].replace("=", "%3D")}
+
+
+def fake_xbloom(request):
+    from xbloom_hub import community as cm
+    url, body = str(request.url), json.loads(request.content or b"{}")
+    if url == cm.CRITERIA_URL:
+        data = {"originList": [{"name": "Kenya", "value": "11"}], "varietalList": [{"name": "SL28", "value": "3"}],
+                "processingList": [{"name": "Washed", "value": "1"}], "roastList": [{"name": "Light", "value": "1"}],
+                "flavorList": [], "cupTypeList": [{"name": "Omni", "value": "2"}],
+                "machineList": [{"name": "Studio", "value": "J15"}]}
+        return httpx2.Response(200, json={"code": 200, "data": data})
+    if url == cm.SEARCH_URL:
+        return httpx2.Response(200, json={"code": 200, "data": {"pageIndex": 1, "totalPage": 1, "total": 2,
+            "list": [_card(4242, "Kenya <b>AA</b>", 1), _card(5151, "Bypass blend", 0)]}})
+    if url == cm.DETAIL_URL:
+        recipe_id = body["id"]
+        name = "Kenya <b>AA</b>" if recipe_id == 4242 else "Bypass blend"
+        return httpx2.Response(200, json={"code": 200, "data": {**_card(recipe_id, name, 1),
+            "introduce": "<script>window.__pwned=9</script>Bright.", "uploadDate": "2026-11-01", "pourList": []}})
+    if url == cm.SHARE_URL:
+        return httpx2.Response(200, json={"result": "success", "recipeVo": _SHARES[body["tableIdOfRSA"]]})
+    return httpx2.Response(404)
+
+
 @pytest.fixture
 def hub(tmp_path, monkeypatch):
     if other := os.environ.get("XBLOOM_TEST_WEB_DIR"):
@@ -153,7 +202,8 @@ def hub(tmp_path, monkeypatch):
     brews = BrewStore(tmp_path / "brews")
     machine = Machine(radio, Sim, brews)
     store = RecipeStore(tmp_path / "recipes")
-    application = hub_app.create_app(machine, store, TOKEN, ["127.0.0.1"], radio, brews)
+    application = hub_app.create_app(machine, store, TOKEN, ["127.0.0.1"], radio, brews,
+                                     community=Community(transport=httpx2.MockTransport(fake_xbloom)))
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(application, host="127.0.0.1", port=port,
                                            log_level="warning", timeout_graceful_shutdown=1))

@@ -613,6 +613,9 @@ only uses the session it is handed.
 
 - No new dependency. `httpx` is already installed (the `mcp` SDK needs it)
   and is added to this project's own dependencies at the installed version.
+  *Corrected in implementation:* the `mcp` SDK depends on `httpx2` (2.16.0,
+  the same API), and `httpx` was only in the dev group; the hub uses
+  `httpx2`, so a production install gains no package.
 - `src/xbloom_hub/community.py`: one module that owns one `httpx.AsyncClient`
   for the life of the hub and offers `search`, `detail` and `fetch_share`.
   All outbound requests go through one function in it, which
@@ -697,9 +700,22 @@ for `checked()` to fill in.
 | `meta.notes` | the community detail's `description`, when imported by id | through `clean_text()`, cut at the meta cap |
 | `meta.roast`, `meta.process`, `meta.bean` | the community detail's `roast`, `process`, `origin` and `varietal`, when imported by id | joined with ", ", through `clean_text()` |
 
-Not importable, whatever else holds: `isEnableBypassWater` equal to 1, a
-`bypassVolume` or `bypassTemp` present, a non-empty `podsVo`, `pourCount`
-different from the length of `pourList`. The result then goes through
+Not importable, whatever else holds: `isEnableBypassWater` equal to 1 (or,
+with no switch, a `bypassVolume` or `bypassTemp` present), `pourCount`
+different from the length of `pourList`. A recipe made for a pod
+(`podsVo`) is importable, its pod named in `meta.notes`.
+
+*Changed after the live check, by the owner (2026-11-14); the slice as
+reviewed refused any `bypassVolume` or `bypassTemp` and any pod.* Of four official
+recipes all four had a `podsVo`, and of three community recipes all three
+carried `bypassVolume` and `bypassTemp` (5.0 ml; 85 or 40 °C) with
+`isEnableBypassWater` at 2, off. Per the Stops below, the choice went to the
+owner, who chose: bypass blocks only when the switch is 1 (or, with no
+switch, when a volume or temperature is present); a pod recipe is
+importable, its pod named in `meta.notes` (`xPod: <name>`) and the pod's
+origin, varietal, process and roast filling the bean fields. After the
+change, an official recipe, a community recipe and a share link each
+imported against the live service. The result then goes through
 `checked()` like any recipe, and what `checked()` refuses is not importable
 either.
 

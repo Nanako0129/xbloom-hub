@@ -398,7 +398,7 @@ def test_start_and_stop_over_http_and_not_over_mcp(client):
                         headers={**AUTH, "Accept": "application/json, text/event-stream"})
     names = {t["name"] for t in tools.json()["result"]["tools"]}
     assert not names & {"start", "start_brew", "stop", "stop_brew", "brew"}
-    assert len(names) == 8
+    assert len(names) == 11          # the eight of S2 and three for the community hub (S3b)
 
 
 def test_the_page_is_served_under_a_strict_policy(client):

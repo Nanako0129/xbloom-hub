@@ -13,6 +13,8 @@
   import Recipe from "./pages/Recipe.svelte";
   import RecipeEdit from "./pages/RecipeEdit.svelte";
   import Home from "./pages/Home.svelte";
+  import Community from "./pages/Community.svelte";
+  import CommunityRecipe from "./pages/CommunityRecipe.svelte";
   import Confirm from "./components/Confirm.svelte";
   import { work } from "./lib/actions.svelte";
 
@@ -26,7 +28,8 @@
   ];
   const ENTER_MS = 700;       // how long a page's arrival may animate
 
-  const current = $derived(route.current.name === "compare" ? "history" : route.current.name);
+  const current = $derived(route.current.name === "compare" ? "history"
+    : route.current.name === "community" ? "recipes" : route.current.name);
   const s = $derived(hub.state);
   const statusText = $derived(!hub.reachable && s ? t("status.no_hub") : s ? stateLabel(s) : t("status.connecting"));
   const statusDetail = $derived(s && hub.reachable ? stateDetail(s) : "");
@@ -93,6 +96,10 @@
         {:else}
           <Recipes />
         {/if}
+      {/key}
+    {:else if route.current.name === "community"}
+      {#key route.hash}
+        {#if route.current.id}<CommunityRecipe id={route.current.id} />{:else}<Community />{/if}
       {/key}
     {:else if route.current.name === "compare"}
       {#key route.hash}<Compare ids={route.current.ids ?? []} />{/key}

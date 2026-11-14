@@ -353,7 +353,8 @@ def test_mcp_offers_exactly_these_tools(client):
     tools = rpc(client, "tools/list").json()["result"]["tools"]
     assert {t["name"] for t in tools} == {
         "list_recipes", "get_recipe", "validate_recipe", "save_recipe", "delete_recipe",
-        "machine_state", "load_recipe", "cancel_load"}
+        "machine_state", "load_recipe", "cancel_load",
+        "search_community_recipes", "get_community_recipe", "import_community_recipe"}
 
 
 def test_mcp_design_save_load_cancel(client):

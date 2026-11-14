@@ -362,7 +362,7 @@ button.small { min-height: 38px; padding: 0 14px; font-size: 0.875rem; flex: non
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 0.8125rem; color: var(--muted); }
 .field.wide { grid-column: 1 / -1; }
-input[type="text"], input[type="number"], textarea { font: inherit; font-size: 1rem; color: var(--text);
+input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"], textarea { font: inherit; font-size: 1rem; color: var(--text);
   background: var(--fill); border: 0; border-radius: var(--r-small); padding: 10px 12px; min-width: 0; width: 100%;
   box-sizing: border-box; }
 textarea { resize: vertical; }
@@ -601,3 +601,15 @@ button.choice-item svg { width: 34px; height: 34px; fill: none; stroke: currentC
 .qr { display: block; width: min(260px, 100%); height: auto; margin: 12px 0; border-radius: 8px; }
 .qr-ground { fill: #fff; }
 .qr-ink { fill: #000; }
+
+/* ---- community recipes (S3b) ------------------------------------------------ */
+.community-search { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; align-items: end; }
+.community-search label:first-child { grid-column: 1 / -1; }   /* the keyword: a whole row */
+@media (min-width: 1200px) { .community-search label:first-child { grid-column: auto / span 2; } }
+.community-form label { display: grid; gap: 4px; }
+.community-form label span { color: var(--muted); font-size: 0.875rem; }
+.community-search .actions { grid-column: 1 / -1; }
+.badge { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px;
+  font-size: 0.75rem; color: var(--coffee); border: 1px solid currentColor; }
+.prose { white-space: pre-line; overflow-wrap: anywhere; }
+.community-search select, .community-search input { width: 100%; box-sizing: border-box; min-width: 0; height: 42px; }
