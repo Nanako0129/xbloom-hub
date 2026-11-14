@@ -292,3 +292,10 @@ def test_the_logo_and_the_home_screen_entry_are_served(ui, hub):
     # Opens in the browser: a standalone app on iOS would not share the pairing.
     assert manifest["display"] == "browser" and manifest["name"] == "xbloom hub"
     assert ui.locator("#side .brand img").evaluate("img => img.naturalWidth > 0")
+
+
+def test_on_a_phone_the_tab_bar_holds_no_brand(ui, hub):
+    ui.set_viewport_size({"width": 390, "height": 844})
+    expect(ui.locator("#side .brand")).to_be_hidden()
+    ui.set_viewport_size({"width": 1400, "height": 900})
+    expect(ui.locator("#side .brand")).to_be_visible()
