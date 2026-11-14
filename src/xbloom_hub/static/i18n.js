@@ -46,7 +46,8 @@ const MESSAGES = {
 
     "home.offline": "咖啡機離線", "home.offline_retry": "hub 正在重試連線。", "home.to_console": "到主控台看連線狀態",
     "home.released": "連線已讓出", "home.released_hint": "官方 App 現在可以連咖啡機。用完再取回。",
-    "home.finished": "沖好了",
+    "home.finished": "沖好了", "home.scale": "秤 g", "home.recent": "最近的沖煮", "home.all_brews": "全部紀錄",
+    "home.count": "沖煮次數", "home.total_water": "總出水",
     "home.busy": "機器正在使用中", "home.busy_hint": "有人在機器上操作，或正在一個 hub 不認得的畫面。",
     "home.ready": "準備好了", "home.asleep": "機器休眠中",
     "home.pick": "選一份食譜", "home.open": "看內容", "home.all_recipes": "全部食譜",
@@ -136,7 +137,8 @@ const MESSAGES = {
 
     "home.offline": "The machine is offline", "home.offline_retry": "The hub is retrying.", "home.to_console": "See the link in the console",
     "home.released": "Link released", "home.released_hint": "The official app can connect now. Take the link back when done.",
-    "home.finished": "Brew finished",
+    "home.finished": "Brew finished", "home.scale": "Scale g", "home.recent": "Recent brews", "home.all_brews": "All brews",
+    "home.count": "Brews", "home.total_water": "Water poured",
     "home.busy": "The machine is in use", "home.busy_hint": "Someone is using it, or it is on a screen the hub does not know.",
     "home.ready": "Ready to brew", "home.asleep": "The machine is asleep",
     "home.pick": "Choose a recipe", "home.open": "Open", "home.all_recipes": "All recipes",

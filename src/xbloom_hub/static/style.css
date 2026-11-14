@@ -283,6 +283,40 @@ dialog .actions button { flex: 1 1 0; min-width: 0; }
   .log { max-height: 56dvh; }
 }
 
+/* ---- home at rest: the scale, the recipes, what was brewed --------------------- */
+.home > :not(:first-child), .home > div > :not(:first-child) { margin-top: 20px; }
+.card.scale { text-align: center; padding-top: 28px; }
+.card.scale svg.dots { display: block; margin: 0 auto; height: 56px; max-width: 100%; }
+.card.scale .label { margin: 12px 0 18px; color: var(--muted); font-size: 0.8125rem; }
+.card.scale .facts { text-align: left; }
+.list.compact { padding: 0; background: none; border-radius: 0; margin-top: 14px; }
+.list.compact li a { padding: 10px 0; }
+button.small { min-height: 38px; padding: 0 14px; font-size: 0.875rem; flex: none; width: 100%; margin-top: 14px; }
+.home .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 699px) { .home .tiles { display: none; } }   /* the tab bar is right there */
+@media (min-width: 1040px) {
+  .home { display: grid; gap: 24px; align-items: start;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    grid-template-areas: "now past" "pick past"; grid-template-rows: auto 1fr; }
+  .home > :not(:first-child) { margin-top: 0; }
+  .home-now { grid-area: now; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+  .home .home-now > :not(:first-child) { margin-top: 0; }
+  .home-now .tiles { grid-template-columns: 1fr; }
+  .home-pick { grid-area: pick; }
+  .home-past { grid-area: past; }
+  .card.scale svg.dots { height: 84px; }
+}
+@media (min-width: 1800px) {
+  /* Three columns: the instrument, the recipes, the past. */
+  .home { gap: 32px; grid-template-columns: minmax(300px, 0.8fr) minmax(0, 1.5fr) minmax(0, 1.1fr);
+    grid-template-areas: "now pick past"; }
+  .home-now { grid-template-columns: 1fr; }
+  .home-now .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home .grid { grid-template-columns: repeat(2, 1fr); }
+  .card.scale { padding-top: 40px; }
+  .card.scale svg.dots { height: 120px; }
+}
+
 /* ---- the home tiles ------------------------------------------------------------ */
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .tile, button.tile { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
@@ -313,13 +347,13 @@ button.tile:active { background: var(--fill-press); }
 /* ---- the cup shown after a brew; its steam is the one thing that moves -------- */
 .done { display: flex; align-items: center; gap: 20px; }
 .done-chart { max-width: 1200px; }
-.done svg.cup { width: 64px; height: 64px; flex: none; fill: var(--dot); }
-.cup .steam { animation: steam 1.6s steps(1) infinite; }
-.cup .steam.s1 { animation-delay: -0.8s; }
+.done svg.dot-cup { width: 64px; height: 64px; flex: none; fill: var(--dot); }
+.dot-cup .steam { animation: steam 1.6s steps(1) infinite; }
+.dot-cup .steam.s1 { animation-delay: -0.8s; }
 @keyframes steam { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .cup .steam { animation: none; }
+  .dot-cup .steam { animation: none; }
   button, a.recipe, #tabs a { transition: none; }
   button:active, a.recipe:active { transform: none; }
 }
