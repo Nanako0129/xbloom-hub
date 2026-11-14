@@ -14,13 +14,49 @@ from starlette.datastructures import Headers
 from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
 from . import errors
 from .machine import Machine
 from .recipes import RecipeInvalid, RecipeStore
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
+STATIC_DIR = Path(__file__).parent / "static"
+
+# No inline script or style, nothing from another origin, no framing. The
+# page puts every string it did not write itself into the document as text;
+# this is the backstop if that is ever got wrong (security review P1-4).
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+       "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+
+
+class SecurityHeaders:
+    def __init__(self, app) -> None:
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self._app(scope, receive, send)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                message["headers"] = [*message.get("headers", []),
+                                      (b"content-security-policy", CSP.encode()),
+                                      (b"x-content-type-options", b"nosniff"),
+                                      (b"referrer-policy", b"no-referrer"),
+                                      (b"cache-control", b"no-store")]
+            await send(message)
+
+        return await self._app(scope, receive, send_with_headers)
+
+
+def check_allowed_hosts(hosts: list[str]) -> list[str]:
+    """Refuse a list that would switch the Host check off (P1-3)."""
+    if not hosts or any(not h or "*" in h for h in hosts):
+        raise SystemExit("XBLOOM_ALLOWED_HOSTS must list exact host names; "
+                         "no empty entry and no wildcard")
+    return hosts
 
 
 def read_token(env: Mapping[str, str]) -> str:
@@ -72,7 +108,8 @@ class Guard:
 
 
 def create_app(machine: Machine, store: RecipeStore, token: str,
-               allowed_hosts: list[str], radio=None) -> Starlette:
+               allowed_hosts: list[str], radio=None, brews=None) -> Starlette:
+    check_allowed_hosts(allowed_hosts)
 
     async def state(request):
         return JSONResponse(machine.snapshot())
@@ -117,10 +154,25 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         slug = (await _json(request)).get("slug")
         if store.get(slug) is None:
             return JSONResponse({"error": "not_found"}, 404)
-        return JSONResponse(await machine.load(slug, lambda: store.wire(slug)))
+        return JSONResponse(await machine.load(slug, lambda: store.for_load(slug)))
 
     async def cancel(request):
         return JSONResponse(await machine.cancel())
+
+    async def start(request):
+        # The ticket came from the load this caller made. It is never in a
+        # GET response or the event stream.
+        return JSONResponse(await machine.start((await _json(request)).get("ticket")))
+
+    async def stop(request):
+        return JSONResponse(await machine.stop())
+
+    async def brew_list(request):
+        return JSONResponse(brews.list() if brews else [])
+
+    async def brew_item(request):
+        record = brews.get(request.path_params["brew_id"]) if brews else None
+        return JSONResponse(record) if record else JSONResponse({"error": "not_found"}, 404)
 
     async def release(request):
         await machine.release()
@@ -180,14 +232,21 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/recipes/{slug}", recipe_item, methods=["GET", "PUT", "DELETE"]),
             Route("/api/machine/load", load, methods=["POST"]),
             Route("/api/machine/cancel", cancel, methods=["POST"]),
+            Route("/api/machine/start", start, methods=["POST"]),
+            Route("/api/machine/stop", stop, methods=["POST"]),
+            Route("/api/brews", brew_list),
+            Route("/api/brews/{brew_id}", brew_item),
             Route("/api/link/release", release, methods=["POST"]),
             Route("/api/link/acquire", acquire, methods=["POST"]),
             # The SDK's route itself, at /mcp, rather than a Mount (which
             # would answer at /mcp/ and redirect /mcp).
             *mcp_app.routes,
+            # Last: the dashboard's own files.
+            Mount("/", app=StaticFiles(directory=STATIC_DIR, html=True), name="static"),
         ],
         middleware=[
             # Refuses a Host header that is not ours: DNS-rebinding protection.
+            Middleware(SecurityHeaders),
             Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
             Middleware(Guard, token=token),
         ],

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from xbloom.ble import CommandRefused, CommandUnanswered
 
+from .brews import BadBrewId
 from .gate import GateRefused
-from .machine import CancelFailed, NotReady
+from .machine import BadTicket, CancelFailed, NoCup, NotReady
 from .recipes import BadSlug, RecipeInvalid
 
 
@@ -17,7 +18,10 @@ class RecipeLoaded(RuntimeError):
 TABLE: dict[type[Exception], tuple[int, str]] = {
     BadSlug: (400, "bad_slug"),
     RecipeInvalid: (422, "recipe_invalid"),
+    BadBrewId: (400, "bad_brew_id"),
     NotReady: (409, "not_ready"),
+    BadTicket: (403, "bad_ticket"),
+    NoCup: (409, "no_cup"),
     RecipeLoaded: (409, "recipe_is_loaded"),
     CancelFailed: (502, "cancel_failed"),
     CommandRefused: (502, "machine_refused"),

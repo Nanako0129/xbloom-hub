@@ -89,7 +89,7 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
                 return {"ok": False, "error": "not_found"}
 
             # Raises unless the machine reports it is waiting, so ok means armed.
-            await machine.load(slug, lambda: store.wire(slug))
+            await machine.load(slug, lambda: store.for_load(slug))
         except _EXPECTED as err:
             return _failure(err)
         # machine.load() returns a one-time start ticket. It stays in the hub.

@@ -21,7 +21,8 @@ RECIPE = {      # the hub's one recipe shape; grinder off, 25 ml of unheated wat
     "pours": [{"volume_ml": 25, "temperature_c": 20, "pause_s": 0, "pattern": 1,
                "flow_rate": 3.0, "agitate_before": 2, "agitate_after": 2}],
 }
-WIRE = to_machine(checked(RECIPE))      # what Machine.load() is given
+WIRE = to_machine(checked(RECIPE))
+ITEM = {"wire": WIRE, "recipe": checked(RECIPE), "as_sent": None}   # what Machine.load() reads
 MCP_HEADERS = {"Accept": "application/json, text/event-stream"}
 
 
@@ -83,7 +84,7 @@ def test_ungated_session_is_never_usable():
         assert machine.state == "offline"
         assert machine.snapshot()["error"] == "gate_missing"
         with pytest.raises(NotReady):
-            await machine.load("x", lambda: WIRE)
+            await machine.load("x", lambda: ITEM)
         task.cancel()
 
     asyncio.run(run())
@@ -97,13 +98,13 @@ def test_load_cancel_release_acquire_on_simulator():
         with pytest.raises(NotReady):
             await machine.cancel()                       # cancel only while armed
 
-        loaded = await machine.load("test", lambda: WIRE)
+        loaded = await machine.load("test", lambda: ITEM)
         assert loaded["state"] == "armed" and loaded["ticket"]
         assert loaded["preload_weight_g"] == 132.4      # read before the tare
         assert "ticket" not in machine.snapshot()
         assert machine._listener._client.gate_log == [8100, 8102, 8104, 8004]
         with pytest.raises(NotReady):
-            await machine.load("test", lambda: WIRE)           # no load on top of a load
+            await machine.load("test", lambda: ITEM)           # no load on top of a load
 
         assert (await machine.cancel())["state"] == "idle"
         assert machine._ticket is None and machine.snapshot()["recipe"] is None
@@ -158,7 +159,7 @@ def test_link_drop_during_load_issues_no_ticket():
         task = asyncio.create_task(machine.run())
         assert await machine._wait_for(lambda: machine.state == "idle", 2)
         with pytest.raises(NotReady):
-            await machine.load("test", lambda: WIRE)
+            await machine.load("test", lambda: ITEM)
         assert machine._ticket is None and machine._recipe is None
         task.cancel()
 
@@ -253,7 +254,7 @@ def test_auth_host_and_origin(client):
 def test_recipe_and_load_flow_over_http(client):
     bad = {**RECIPE, "dose_g": 99}
     assert client.put("/api/recipes/bad", json=bad, headers=AUTH).status_code == 422
-    assert client.put("/api/recipes/..%2Fx", json=RECIPE, headers=AUTH).status_code in (400, 404)
+    assert client.put("/api/recipes/..%2Fx", json=RECIPE, headers=AUTH).status_code in (400, 404, 405)
     assert client.put("/api/recipes/Bad_Slug", json=RECIPE, headers=AUTH).status_code == 400
     assert client.put("/api/recipes/test", json=RECIPE, headers=AUTH).status_code == 200
     assert client.get("/api/recipes").json() == [{"slug": "test", "name": "Test"}]
@@ -531,7 +532,7 @@ def test_a_save_cannot_slip_in_while_a_load_reads_the_recipe(tmp_path):
             except errors.RecipeLoaded:
                 seen["blocked"] = True
             errors.guard_loaded(machine, "other")
-            return to_machine(store.get("r"))
+            return store.for_load("r")
 
         assert (await machine.load("r", read))["state"] == "armed"
         with pytest.raises(NotReady):                       # gone from the library

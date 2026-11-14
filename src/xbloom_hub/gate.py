@@ -8,6 +8,8 @@ writes without going through ``write_confirmed``.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 
 from xbloom.ble import FFE1_UUID, frame_command_code
@@ -18,8 +20,30 @@ log = logging.getLogger(__name__)
 LOAD = frozenset({8100, 8102, 8104, 8001, 8004})
 # quit the recipe-start screen; unverified on hardware until S1's attended test
 CANCEL = frozenset({8017})
-# Start (8002) and resume (40524) are deliberately in no list yet.
-ALLOWED = LOAD | CANCEL
+# stop a running brew
+STOP = frozenset({40519})
+ALLOWED = LOAD | CANCEL | STOP
+# Start passes only while Machine.start() holds a permit for its one send
+# (safety invariant 3). Resume (40524), pause, grinder and slot codes are
+# deliberately in no list.
+START = frozenset({8002})
+
+_start_permit: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "xbloom_start_permit", default=False)
+
+
+@contextlib.contextmanager
+def start_permit():
+    """Let 8002 through for the writes made inside this block, in this task.
+
+    A context variable, so the permit belongs to the task that holds it: a
+    write of 8002 from any other task, at any time, is still refused.
+    """
+    token = _start_permit.set(True)
+    try:
+        yield
+    finally:
+        _start_permit.reset(token)
 
 _FFE1 = FFE1_UUID.lower()
 
@@ -35,7 +59,8 @@ def check(char_specifier: object, data: object) -> int:
         code = frame_command_code(bytes(data))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         code = None
-    if uuid != _FFE1 or code not in ALLOWED:
+    allowed = code in ALLOWED or (code in START and _start_permit.get())
+    if uuid != _FFE1 or not allowed:
         raise GateRefused(f"write refused: characteristic={uuid} code={code}")
     return code
 

@@ -256,10 +256,14 @@ class RecipeStore:
             raise RecipeInvalid({"file": "not_yaml"}) from err
         return checked(data)
 
-    def wire(self, slug: str) -> dict | None:
-        """The stored recipe in the encoder's shape, or None. What a load sends."""
+    def for_load(self, slug: str) -> dict | None:
+        """What a load needs for the stored recipe, or None: the dictionary the
+        encoder reads (`wire`), plus the recipe as checked and as it will be
+        sent, which travel with the brew record."""
         recipe = self.get(slug)
-        return to_machine(recipe) if recipe is not None else None
+        if recipe is None:
+            return None
+        return {"wire": to_machine(recipe), "recipe": recipe, "as_sent": as_sent(recipe)}
 
     def put(self, slug: str, recipe: object) -> dict:
         path = self._path(slug)
