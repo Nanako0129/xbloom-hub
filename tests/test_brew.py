@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 from xbloom.ble import FFE1_UUID, CommandRefused, CommandUnanswered
 
 from xbloom_hub import gate
+import xbloom_hub.machine as machine_module
 from xbloom_hub.app import CSP, check_allowed_hosts, create_app
 from xbloom_hub.brews import BadBrewId, BrewStore
 from xbloom_hub.machine import BadTicket, Machine, NoCup, NotReady
@@ -285,6 +286,17 @@ def test_a_finished_brew_is_not_reopened_by_lingering_activity(tmp_path):
     asyncio.run(run())
 
 
+def drop_link(machine):
+    """The link failing under the session, as a BLE drop does."""
+    machine._lifecycle.put_nowait(("failed", {"reason": "link_lost_in_test"}))
+
+
+async def reconnected(machine, old_listener):
+    assert await machine._wait_for(
+        lambda: machine._listener is not None and machine._listener is not old_listener, 5)
+    return machine._listener._on_raw
+
+
 def test_asleep_and_link_loss_close_a_record(tmp_path):
     async def run():
         machine, brews, task = await ready(tmp_path)
@@ -297,8 +309,8 @@ def test_asleep_and_link_loss_close_a_record(tmp_path):
 
         machine._listener._on_raw({"cmd": 40510, "pour_index": 0})
         assert machine.state == "brewing"
-        await machine.release()
-        assert machine.state == "released"
+        drop_link(machine)
+        assert await machine._wait_for(lambda: machine._brew is None, 2)
         assert [b["reason"] for b in brews.list()] == ["link_lost", "asleep"]   # newest first
         task.cancel()
 
@@ -786,3 +798,161 @@ def test_list_carries_a_thinned_water_curve_for_each_brew(tmp_path):
     assert by_id["20261101-080000-aaaa"]["water_ml"] == long_water[-1][1]       # the other fields are as before
     assert by_id["20261102-080000-bbbb"]["spark"] == [[0.5, 1.0], [2.0, 4.0]]   # short series: as they are
     assert by_id["20261103-080000-cccc"]["spark"] == []
+
+
+
+# ---- a brew across a link drop (2026-11-14: one cup split into two records) ---- #
+def test_the_link_is_not_released_with_a_recipe_loaded_or_a_brew_running(tmp_path):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        ticket = await armed(machine)
+        with pytest.raises(NotReady):
+            await machine.release()
+        machine._listener._brewing.cancel() if getattr(machine._listener, "_brewing", None) else None
+        await machine.start(ticket)
+        machine._listener._brewing.cancel()
+        machine._listener._on_raw({"cmd": 8023, "activity": 35})
+        with pytest.raises(NotReady):
+            await machine.release()
+        assert machine.state == "brewing" and not machine._released
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_brew_goes_on_in_the_same_record_when_the_link_comes_back(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 40510, "pour_index": 0})
+        raw({"cmd": 40523, "water_ml": 40000.0})
+        first = machine.snapshot()["brew"]["id"]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 35)   # the machine as the link comes back
+        old = machine._listener
+        drop_link(machine)
+        raw = await reconnected(machine, old)
+        raw({"cmd": 8023, "activity": 35})                      # still brewing
+        assert machine.state == "brewing" and machine.snapshot()["brew"]["id"] == first
+        raw({"cmd": 40523, "water_ml": 120000.0})
+        raw({"cmd": 40512})
+        assert len(brews.list()) == 1
+        record = brews.get(first)
+        assert record["reason"] == "finished" and record["recipe"] is not None
+        (gap_from, gap_to), = record["gaps"]
+        assert 0 <= gap_from < gap_to
+        assert [p[1] for p in record["samples"]["water"]] == [40.0, 120.0]
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_brew_that_finished_during_the_gap_is_finished(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        machine._listener._on_raw({"cmd": 8023, "activity": 35})
+        first = machine.snapshot()["brew"]["id"]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 36)   # the machine as the link comes back
+        old = machine._listener
+        drop_link(machine)
+        raw = await reconnected(machine, old)
+        raw({"cmd": 8023, "activity": 36})                      # the screen after a brew
+        record = brews.get(first)
+        assert len(brews.list()) == 1 and record["reason"] == "finished" and record["gaps"]
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_link_back_too_late_starts_a_new_record(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        machine._listener._on_raw({"cmd": 8023, "activity": 35})
+        first = machine.snapshot()["brew"]["id"]
+        monkeypatch.setattr(machine_module, "RESUME_WINDOW_S", 0)
+        monkeypatch.setattr(type(machine._listener), "start_activity", 35)   # the machine as the link comes back
+        old = machine._listener
+        drop_link(machine)
+        raw = await reconnected(machine, old)
+        raw({"cmd": 8023, "activity": 35})
+        assert machine.snapshot()["brew"]["id"] != first
+        assert brews.get(first)["reason"] == "link_lost"
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_passing_value_on_reconnecting_does_not_drop_the_held_brew(tmp_path, monkeypatch):
+    # 29 is seen as the link comes up (2026-11-14), before the machine's real state.
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        machine._listener._on_raw({"cmd": 8023, "activity": 35})
+        first = machine.snapshot()["brew"]["id"]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 29)
+        old = machine._listener
+        drop_link(machine)
+        raw = await reconnected(machine, old)
+        raw({"cmd": 8023, "activity": 35})
+        assert machine.snapshot()["brew"]["id"] == first and len(brews.list()) == 1
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_another_cup_after_the_gap_gets_its_own_record(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 40510, "pour_index": 1})
+        raw({"cmd": 40523, "water_ml": 150000.0})
+        first = machine.snapshot()["brew"]["id"]
+        last_water_t = brews.get(first) and machine._brew["samples"]["water"][-1][0]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 35)
+        old = machine._listener
+        drop_link(machine)
+        raw = await reconnected(machine, old)
+        assert machine.snapshot()["brew"]["id"] == first and machine.snapshot()["brew"]["gaps"] == 1
+        raw({"cmd": 40523, "water_ml": 20000.0})               # far less water: another cup
+        second = machine.snapshot()["brew"]["id"]
+        assert second != first
+        old_record = brews.get(first)
+        assert old_record["reason"] == "link_lost" and not old_record.get("gaps")
+        assert [p[1] for p in old_record["samples"]["water"]] == [150.0]
+        assert machine._brew["samples"]["water"][-1][1] == 20.0
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_stop_sent_before_the_drop_is_stopped_when_found_finished(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 40523, "water_ml": 30000.0})
+        machine._brew["stop_sent"] = True
+        first = machine.snapshot()["brew"]["id"]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 36)
+        old = machine._listener
+        drop_link(machine)
+        await reconnected(machine, old)
+        record = brews.get(first)
+        assert record["reason"] == "stopped"
+        # The gap starts at the last reading, not when the drop was noticed.
+        assert record["gaps"][0][0] == record["samples"]["water"][-1][0]
+        task.cancel()
+
+    asyncio.run(run())

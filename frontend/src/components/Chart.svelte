@@ -16,6 +16,7 @@
     label: string;
     points: [number, number][];
     dashed?: boolean;
+    gaps?: [number, number][];   // spans with no readings: the line breaks there, never a straight jump
   }
   export type { Mark } from "../lib/records";
 </script>
@@ -64,11 +65,14 @@
   let zoomPct = $state<[number, number] | null>(null);
 
   const shown = $derived(lines.filter((line) => !hidden[line.key] && line.points.length));
+  // Inside a gap there is no reading: nothing is interpolated across it.
+  const inGap = (line: Line, time: number) => (line.gaps ?? []).some(([from, to]) => time > from && time < to);
+  const readingOf = (line: Line, time: number) => (inGap(line, time) ? null : valueAt(line.points, time));
   // Replaying: the measured curves end at `upto`, the plan stays whole.
   const drawn = $derived(upto === null ? shown : shown.map((line) => {
     if (line.kind === "plan") return line;
     const before = line.points.filter((p) => p[0] <= upto);
-    const value = valueAt(line.points, upto);
+    const value = readingOf(line, upto);
     const last = before[before.length - 1];
     return { ...line, points: value !== null && (!last || last[0] < upto) && line.points[0][0] <= upto
       ? [...before, [upto, value] as [number, number]] : before };
@@ -76,7 +80,7 @@
   // The pointer first, then a mark that was clicked, then the replay.
   const readAt = $derived(at ?? pinned ?? upto);
   const reading = $derived(readAt === null ? [] : drawn.map((line) => ({
-    line, value: valueAt(line.points, readAt),
+    line, value: readingOf(line, readAt),
   })));
   const pinnedMark = $derived(at === null && pinned !== null ? marks.find((m) => m.t === pinned) : undefined);
   // The axis is as long as the whole brew, whatever a replay has drawn so far.
@@ -151,7 +155,7 @@
       toolbox: { show: true, left: -100, top: -100, itemSize: 1, showTitle: false,
         feature: { dataZoom: { show: true, yAxisIndex: "none", filterMode: "none", icon: { zoom: "path://M0,0", back: "path://M0,0" } } } },
       series: drawn.map((line, index) => ({
-        id: line.key, type: "line", showSymbol: false, smooth: false, data: line.points,
+        id: line.key, type: "line", showSymbol: false, smooth: false, data: withGaps(line.points, line.gaps),
         lineStyle: { color: c[line.kind], width: line.kind === "plan" ? PLAN_WIDTH : LINE_WIDTH,
                      type: line.kind === "plan" || line.dashed ? "dashed" : "solid" },
         itemStyle: { color: c[line.kind] },
@@ -204,6 +208,19 @@
     // the middle of a drag: a live or replaying chart redraws many times a second.
     if (SELECTS && !dragging) chart.dispatchAction({ type: "takeGlobalCursor", key: "dataZoomSelect", dataZoomSelectActive: true });
   });
+
+  // A missing value at the start of each gap: ECharts breaks the line there.
+  function withGaps(points: [number, number][], gaps: [number, number][] | undefined): (number | null)[][] {
+    if (!gaps?.length) return points;
+    const out: (number | null)[][] = [];
+    let g = 0;
+    const sorted = [...gaps].sort((a, b) => a[0] - b[0]);
+    for (const point of points) {
+      while (g < sorted.length && point[0] > sorted[g][0]) { out.push([sorted[g][0], null]); g++; }
+      out.push(point);
+    }
+    return out;
+  }
 
   const unit = (line: Line) => (line.kind === "coffee" ? "g" : "ml");
 </script>

@@ -16,6 +16,7 @@ export interface BrewRecord extends BrewSummary {
   events: [number, { cmd: number; [key: string]: unknown }][];
   plan: Plan | null;
   rezeroed?: Point[];         // [seconds, grams carried over] for each scale reset the hub saw
+  gaps?: [number, number][];  // [from, to] seconds the hub's link was down while the brew ran
 }
 
 export const pourStarts = (record: BrewRecord): number[] =>

@@ -265,3 +265,34 @@ def test_the_brewing_view_shows_each_pours_progress_and_start_against_the_plan(u
     expect(ui.locator("#view .pours li").nth(1).locator(".diff")).to_have_text(re.compile(r"^[+−]\d+ s$"))
     ui.wait_for_function("() => { const b = document.querySelector('.pours li[data-now] [role=progressbar]'); return b && +b.getAttribute('aria-valuenow') > 20; }")
     hub.wait_state("idle", timeout=20)
+
+
+def test_a_page_that_missed_reports_fills_them_from_the_record(ui, hub, monkeypatch):
+    # A phone that put the page in the background, then came back: the stream
+    # reconnects, the brew is further on, and the page asks the hub for the record.
+    from .conftest import Sim
+    monkeypatch.setattr(Sim, "brew_seconds", 25.0)        # still brewing when the page is back
+    recipe = _recipe("Long one", 5, "1:8", [_pour(40)])
+    assert hub.api("PUT", "/api/recipes/long-one?create=1", recipe).status_code == 200
+    ui.evaluate("location.hash = '#/recipes/long-one'")
+    ui.get_by_role("button", name="Load onto machine").click()
+    hub.wait_state("armed")
+    ui.get_by_role("button", name="Start brew").click()
+    expect(ui.locator("#confirm")).to_be_visible()
+    ui.locator("#confirm-yes").click()
+    brew_id = hub.wait_state("brewing")["brew"]["id"]
+    asked = []
+    ui.on("request", lambda r: asked.append(r.url) if r.url.endswith(f"/api/brews/{brew_id}") else None)
+    # The hub says nothing for 4 s (the stream stays open): the page hears no
+    # report, as one in the background does. Offline emulation does not cut an
+    # open stream, so it cannot stand in for this.
+    hub.machine._publish = lambda: None
+    ui.wait_for_timeout(4000)
+    del hub.machine._publish                              # its own method again
+    for _ in range(40):
+        if asked:
+            break
+        ui.wait_for_timeout(250)
+    assert asked, "the page did not fetch the record after missing reports"
+    assert hub.state()["state"] == "brewing"              # asked while brewing: not the finished view's fetch
+    hub.api("POST", "/api/machine/stop")                  # not left brewing for 25 s
