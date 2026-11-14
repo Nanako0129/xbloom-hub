@@ -129,6 +129,25 @@ placeholder, or if the page uses a key that does not exist. The sources in
 `frontend/src` contain no interface text of their own, and "xbloom hub" is a
 name: it is not translated.
 
+## Recipes from xBloom's community hub
+
+The one thing the hub does on the internet. Searching xBloom's community
+recipe hub, opening a recipe from it, or importing one by id or by share
+link makes the hub post to `collective-api.xbloom.com` and
+`client-api.xbloom.com`, and to four fixed addresses there only. What leaves
+the home network: the search terms and filters, recipe ids and share ids,
+the home's IP address, and the HTTP library's User-Agent. No token, no
+serial number, no machine state is sent; no cookie is kept; nothing is
+signed in to. Images are never fetched.
+
+These routes (`/api/community/...`) need the token even to read, since each
+makes the hub call out. At most two run at once (a third gets 503), each
+gives up after 15 seconds, and a failure is a 502 naming one of `timeout`,
+`upstream_status`, `upstream_refused` or `malformed_response`. An import
+writes a new recipe file and never replaces one or loads the machine. A
+recipe that uses bypass water or a pod, or does not pass the hub's check as
+its author wrote it, is shown as not importable with the reason.
+
 ## How it is kept safe
 
 - Every response carries a Content-Security-Policy that allows scripts and

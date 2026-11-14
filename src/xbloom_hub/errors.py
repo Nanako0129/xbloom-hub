@@ -5,6 +5,7 @@ from __future__ import annotations
 from xbloom.ble import CommandRefused, CommandUnanswered
 
 from .brews import BadBrewId
+from .community import BadQuery, BadShareLink, CommunityBusy, CommunityFailed, NotImportable
 from .gate import GateRefused
 from .machine import BadTicket, CancelFailed, NoCup, NotReady
 from .pairing import BadPairingCode
@@ -35,6 +36,13 @@ TABLE: dict[type[Exception], tuple[int, str]] = {
     GateRefused: (500, "gate_refused"),
     BadPairingCode: (403, "bad_pairing_code"),
     BodyTooLarge: (413, "body_too_large"),
+    # xBloom's community hub (docs/PLAN.md, S3b). A 502's detail is one of
+    # community.WORDS, never text from the service.
+    CommunityFailed: (502, "community_failed"),
+    CommunityBusy: (503, "community_busy"),
+    BadQuery: (400, "bad_query"),
+    BadShareLink: (400, "bad_share_link"),
+    NotImportable: (422, "not_importable"),
 }
 
 

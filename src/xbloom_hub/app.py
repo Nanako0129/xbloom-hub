@@ -19,6 +19,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from . import errors
+from .community import LIST_FILTERS, Community
 from .machine import Machine
 from .errors import BodyTooLarge
 from .pairing import LIFETIME_S, Pairing
@@ -27,6 +28,9 @@ from .recipes import RecipeInvalid, RecipeStore, as_sent, plan
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
+# These routes make the hub call xBloom, so even their GETs need the token
+# (docs/PLAN.md, S3b).
+COMMUNITY_PATH = "/api/community"
 # The one write that needs no token: a phone trading a pairing code for it
 # (docs/PLAN.md, S3d-1). Exact method and path, nothing near it.
 CLAIM = ("POST", "/api/pair/claim")
@@ -175,10 +179,13 @@ class Guard:
             return await JSONResponse({"error": "foreign_origin"}, 403)(scope, receive, send)
         # Reads are open; anything that can change something needs the token.
         # Every MCP request needs it whatever its method: its GET is a stream
-        # of tool traffic, not a read of public state.
+        # of tool traffic, not a read of public state. So does every request
+        # under /api/community: it makes the hub call out to xBloom.
         if (scope["method"], scope["path"]) == CLAIM:
             return await self._app(scope, receive, send)
-        if scope["method"] not in ("GET", "HEAD") or scope["path"].startswith(MCP_PATH):
+        path = scope["path"]
+        if (scope["method"] not in ("GET", "HEAD") or path.startswith(MCP_PATH)
+                or path == COMMUNITY_PATH or path.startswith(COMMUNITY_PATH + "/")):
             scheme, _, presented = headers.get("authorization", "").partition(" ")
             if (scheme != "Bearer" or not presented
                     or not hmac.compare_digest(presented.encode(), self._token)):
@@ -187,11 +194,13 @@ class Guard:
 
 
 def create_app(machine: Machine, store: RecipeStore, token: str,
-               allowed_hosts: list[str], radio=None, brews=None, allowed_networks=None) -> Starlette:
+               allowed_hosts: list[str], radio=None, brews=None, allowed_networks=None,
+               community: Community | None = None) -> Starlette:
     # No networks given: this host only. Never "no check".
     allowed_networks = allowed_networks or parse_networks(LOOPBACK)
     check_allowed_hosts(allowed_hosts)
     pairing = Pairing()
+    community = community or Community()
 
     async def state(request):
         return JSONResponse(machine.snapshot())
@@ -334,6 +343,28 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             raise RecipeInvalid({"body": "not_a_json_object"})
         return body
 
+    async def community_criteria(request):
+        return JSONResponse(await community.criteria())
+
+    async def community_search(request):
+        query = request.query_params
+        page = query.get("page", "1")
+        return JSONResponse(await community.search(
+            keyword=query.get("keyword"), page=int(page) if page.isdigit() and len(page) <= 3 else 0,
+            sort=query.get("sort", "date"), kind=query.get("kind") or None,
+            source=query.get("source") or None, machine=query.get("machine") or None,
+            filters={key: query.getlist(key) for key in LIST_FILTERS if query.getlist(key)}))
+
+    async def community_item(request):
+        return JSONResponse(await community.detail(request.path_params["id"]))
+
+    async def community_import(request):
+        body = await _json(request, cap=CLAIM_BODY_CAP)
+        # Saves under a new slug only; never loads the machine.
+        slug = await community.import_recipe(store, body.get("slug"), body.get("id"),
+                                             body.get("share_url"))
+        return JSONResponse({"slug": slug})
+
     async def failure(request, exc):
         return JSONResponse(errors.describe(exc), errors.lookup(exc)[0])
 
@@ -341,7 +372,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
 
     from .mcp_tools import build_server
 
-    mcp_server = build_server(machine, store)
+    mcp_server = build_server(machine, store, community)
     # Stateless JSON responses: one request, one answer, nothing to resume.
     # The SDK's own Host check is tied to a host it is told it binds to; this
     # app is the one that binds, and TrustedHostMiddleware plus Guard below
@@ -366,6 +397,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
                 await task
             if radio is not None:
                 await radio.stop()
+            await community.aclose()
 
     return Starlette(
         routes=[
@@ -388,6 +420,10 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/pair/cancel", pair_cancel, methods=["POST"]),
             Route("/api/pair/status", pair_status, methods=["POST"]),
             Route(CLAIM[1], pair_claim, methods=["POST"]),
+            Route(f"{COMMUNITY_PATH}/criteria", community_criteria),
+            Route(f"{COMMUNITY_PATH}/search", community_search),
+            Route(f"{COMMUNITY_PATH}/{{id:int}}", community_item),
+            Route(f"{COMMUNITY_PATH}/import", community_import, methods=["POST"]),
             # The SDK's route itself, at /mcp, rather than a Mount (which
             # would answer at /mcp/ and redirect /mcp).
             *mcp_app.routes,
