@@ -4,6 +4,7 @@ export const LANGUAGE_NAMES: Record<string, string> = { "zh-Hant": "繁體中文
 
 export const MESSAGES: Record<string, Record<string, string>> = {
   "zh-Hant": {
+    "chart.hint": "把游標移到圖上看數值；滾輪縮放、拖曳平移、雙擊還原。",
     "next.elsewhere": "這一頁還在搬到新版介面，目前請用現行版本。", "next.open_current": "在現行版本開啟這一頁",
     "tab.home": "現在", "tab.recipes": "配方", "tab.history": "紀錄", "tab.console": "主控台", "tab.label": "主要分頁",
     "back": "返回",
@@ -110,6 +111,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
   },
 
   en: {
+    "chart.hint": "Point at the chart to read it; scroll to zoom, drag to pan, double-click to reset.",
     "next.elsewhere": "This page has not moved to the new dashboard yet; use the current one.", "next.open_current": "Open this page on the current dashboard",
     "tab.home": "Now", "tab.recipes": "Recipes", "tab.history": "History", "tab.console": "Console", "tab.label": "Main sections",
     "back": "Back",

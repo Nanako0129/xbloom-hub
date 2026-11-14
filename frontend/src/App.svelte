@@ -7,6 +7,9 @@
   import MachineCard from "./components/MachineCard.svelte";
   import Console from "./pages/Console.svelte";
   import Elsewhere from "./pages/Elsewhere.svelte";
+  import History from "./pages/History.svelte";
+  import Brew from "./pages/Brew.svelte";
+  import Compare from "./pages/Compare.svelte";
 
   listen();
 
@@ -56,6 +59,12 @@
   <main id="view" tabindex="-1" bind:this={view}>
     {#if route.current.name === "console"}
       <Console />
+    {:else if route.current.name === "history" && route.current.id}
+      {#key route.current.id}<Brew id={route.current.id} />{/key}
+    {:else if route.current.name === "history"}
+      <History />
+    {:else if route.current.name === "compare"}
+      <Compare ids={route.current.ids ?? []} />
     {:else}
       <Elsewhere title={t(`tab.${route.current.name === "compare" ? "history" : route.current.name}`)} />
     {/if}
