@@ -391,7 +391,82 @@ button.tile:active { background: var(--fill-press); }
 .dot-cup .steam.s1 { animation-delay: -0.8s; }
 @keyframes steam { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
 
+/* ---- motion -----------------------------------------------------------------------
+   One curve and three lengths for everything that moves. Arrivals and
+   answers to a press; nothing loops except what the machine itself is doing
+   (steam, falling water, a lamp while it works). */
+:root {
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);   /* quick to start, soft to land */
+  --quick: 180ms;           /* a dot turning, a hover */
+  --settle: 380ms;          /* a card arriving, a dialog opening */
+  --draw: 900ms;            /* a curve being drawn */
+  --lift: 0 14px 34px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(224, 164, 88, 0.28);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: scale(0.94) translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 currentColor; } 60% { box-shadow: 0 0 0 7px transparent; } }
+@keyframes fall { 0%, 100% { opacity: 0.12; } 14%, 40% { opacity: 1; } }
+
+/* A page arriving: its blocks rise in turn, then the cards inside a grid. */
+#view[data-enter] > * { animation: rise var(--settle) var(--ease) both; }
+#view[data-enter] > :nth-child(2) { animation-delay: 50ms; }
+#view[data-enter] > :nth-child(3) { animation-delay: 100ms; }
+#view[data-enter] > :nth-child(4) { animation-delay: 150ms; }
+#view[data-enter] > :nth-child(n+5) { animation-delay: 200ms; }
+#view[data-enter] .grid > *, #view[data-enter] .list > li, #view[data-enter] .tiles > *,
+#view[data-enter] .home > div > * { animation: rise var(--settle) var(--ease) both; }
+#view[data-enter] .grid > :nth-child(2), #view[data-enter] .list > :nth-child(2), #view[data-enter] .tiles > :nth-child(2) { animation-delay: 60ms; }
+#view[data-enter] .grid > :nth-child(3), #view[data-enter] .list > :nth-child(3) { animation-delay: 120ms; }
+#view[data-enter] .grid > :nth-child(4), #view[data-enter] .list > :nth-child(4) { animation-delay: 180ms; }
+#view[data-enter] .grid > :nth-child(n+5), #view[data-enter] .list > :nth-child(n+5) { animation-delay: 240ms; }
+#view[data-enter] .home > :nth-child(2) > * { animation-delay: 90ms; }
+#view[data-enter] .home > :nth-child(3) > * { animation-delay: 180ms; }
+.notice { animation: rise var(--settle) var(--ease) both; }
+
+/* Things that can be pressed lift toward the pointer. */
+a.recipe, .tile, button.tile, a.pill, .list a { transition: transform var(--quick) var(--ease), box-shadow var(--quick) var(--ease), background var(--quick); }
+a.recipe:hover, .tile:hover, button.tile:hover { transform: translateY(-3px); box-shadow: var(--lift); }
+a.recipe:active, .tile:active, button.tile:active { transform: translateY(0) scale(0.985); }
+.list a:hover .title { color: var(--tint); }
+.tile .icon svg, #tabs .icon svg { transition: transform var(--settle) var(--ease); }
+.tile:hover .icon svg { transform: scale(1.12); }
+#tabs a:hover .icon svg { transform: scale(1.15); }
+
+/* The machine's display: each dot turns over by itself. */
+.dots circle { transition: fill var(--quick) ease; }
+
+/* A recipe's pours fill in from the left. */
+a.recipe svg rect, div.recipe svg rect { transform-box: fill-box; transform-origin: left center;
+  animation: grow 520ms var(--ease) both; }
+
+/* Curves are drawn; dashed and second curves fade in. */
+.chart path.drawn { stroke-dasharray: 1; stroke-dashoffset: 0; animation: draw var(--draw) ease-out both; }
+.chart path.faded, .chart .mark { animation: fade var(--draw) ease-out both; }
+.chart .cursor-line, .chart .cursor-dot { transition: opacity var(--quick); }
+
+/* A lamp that is working breathes; one at rest is still. */
+.lamp[data-state="brewing"] { color: var(--water); animation: pulse 1.6s ease-out infinite; }
+.lamp[data-state="armed"] { color: var(--wait); animation: pulse 2.2s ease-out infinite; }
+
+/* Falling water beside a brew's name. */
+.done svg.dot-pour { width: 44px; height: 62px; flex: none; fill: var(--water); }
+.dot-pour .fall { animation: fall 1.05s linear infinite; }
+.dot-pour .f1 { animation-delay: 0.15s; } .dot-pour .f2 { animation-delay: 0.3s; }
+.dot-pour .f3 { animation-delay: 0.45s; } .dot-pour .f4 { animation-delay: 0.6s; }
+.dot-pour .f5 { animation-delay: 0.75s; } .dot-pour .f6 { animation-delay: 0.9s; }
+
+/* A question arriving. */
+dialog[open] { animation: pop var(--settle) var(--ease) both; }
+dialog::backdrop { animation: fade var(--settle) ease both; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+
+/* The current pour in a running brew slides into its highlight. */
+.pours > li, #live-pours > li { transition: background var(--settle) var(--ease), opacity var(--settle) var(--ease); }
+
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, dialog::backdrop { animation: none !important; transition: none !important; }
   .dot-cup .steam { animation: none; }
   button, a.recipe, #tabs a { transition: none; }
   button:active, a.recipe:active { transform: none; }
