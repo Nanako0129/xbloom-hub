@@ -613,6 +613,9 @@ only uses the session it is handed.
 
 - No new dependency. `httpx` is already installed (the `mcp` SDK needs it)
   and is added to this project's own dependencies at the installed version.
+  *Corrected in implementation:* the `mcp` SDK depends on `httpx2` (2.16.0,
+  the same API), and `httpx` was only in the dev group; the hub uses
+  `httpx2`, so a production install gains no package.
 - `src/xbloom_hub/community.py`: one module that owns one `httpx.AsyncClient`
   for the life of the hub and offers `search`, `detail` and `fetch_share`.
   All outbound requests go through one function in it, which

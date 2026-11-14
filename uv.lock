@@ -1564,7 +1564,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioesphomeapi" },
     { name = "bleak-esphome" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "pyyaml" },
     { name = "starlette" },
@@ -1583,7 +1583,7 @@ dev = [
 requires-dist = [
     { name = "aioesphomeapi", specifier = "==46.30.0" },
     { name = "bleak-esphome", specifier = "==4.1.0" },
-    { name = "httpx", specifier = "==0.28.1" },
+    { name = "httpx2", specifier = "==2.16.0" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "starlette", specifier = ">=0.40" },

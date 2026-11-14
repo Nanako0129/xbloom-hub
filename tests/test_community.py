@@ -7,7 +7,7 @@ import json
 import logging
 import time
 
-import httpx
+import httpx2 as httpx
 import pytest
 import yaml
 from starlette.testclient import TestClient

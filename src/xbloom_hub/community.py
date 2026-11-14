@@ -24,7 +24,7 @@ import math
 import re
 from urllib.parse import quote, unquote, urlsplit
 
-import httpx
+import httpx2 as httpx   # the mcp SDK's own HTTP client: no package added
 from xbloom.community import KINDS, SORTS, SOURCES, XBloomCommunityClient
 from xbloom.exceptions import XBloomAPIError
 
@@ -70,7 +70,7 @@ WORDS = ("timeout", "upstream_status", "upstream_refused", "malformed_response")
 log = logging.getLogger(__name__)
 # httpx logs each request at INFO with the server's status text. Failures are
 # logged here instead, with the exception class and the status code only.
-logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpx2").setLevel(logging.WARNING)
 
 
 class CommunityFailed(RuntimeError):

@@ -15,9 +15,9 @@ dependencies = [
     "uvicorn>=0.30",
     "pyyaml>=6",
     "mcp==2.3.0",
-    # The community hub's one outbound client (docs/PLAN.md, S3b), pinned at
-    # the version already locked for the tests.
-    "httpx==0.28.1",
+    # The community hub's one outbound client (docs/PLAN.md, S3b): the HTTP
+    # library the mcp SDK already installs, named here because the hub uses it.
+    "httpx2==2.16.0",
 ]
 
 [project.scripts]
