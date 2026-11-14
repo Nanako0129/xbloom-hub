@@ -630,7 +630,7 @@ function viewBrewing() {
     h("div", { class: "cols" },
       h("div", {}, h("div", { id: "live-chart" }, parts.chart),
         // Not redrawn while the brew runs, so a press on it is never lost.
-        h("div", { class: "actions" }, button(t("action.stop"), "stop", { class: "danger", disabled: busy, on: { click: confirmStop } }))),
+        h("div", { class: "actions" }, button(t("action.stop"), "stop", { id: "stop", class: "danger", disabled: stopping, on: { click: confirmStop } }))),
       info ? h("div", { class: "wide-only" }, poursList(info, parts.index)) : null),
   ];
 }
@@ -675,8 +675,22 @@ async function confirmStart(info) {
   }
 }
 
+// Stop is not held behind another request: a start can still be waiting for
+// its answer when the brew has already begun. The hub serialises stops
+// itself and refuses a second one while the first is on its way.
+let stopping = false;
 async function confirmStop() {
-  if (await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) act(() => api("POST", "/api/machine/stop"), t("working.stop"));
+  if (!(await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) || stopping) return;
+  stopping = true;
+  const node = document.getElementById("stop");
+  if (node) node.disabled = true;          // the same node: it is never rebuilt during a brew
+  workingText.textContent = t("working.stop");
+  document.body.dataset.busy = "";
+  try { await api("POST", "/api/machine/stop"); } catch (error) { flash = { text: error.message, bad: true }; last = ""; }
+  stopping = false;
+  if (node) node.disabled = false;
+  if (!busy) delete document.body.dataset.busy;
+  render();
 }
 
 // On the home screen this sits beside two links, so it asks first.
