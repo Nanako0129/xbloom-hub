@@ -114,6 +114,7 @@ Each ends with an observed check, on the machine unless stated.
 | S2 | MCP tools and a Claude Code skill from the ported brewing reference | a recipe written in Claude Code appears on the machine |
 | S3 | Dashboard and console page: live curve, event log, manual load / start / cancel | user watches one real brew in a browser |
 | S3b | Recipes from xBloom's community hub and share links, no account | an official recipe saved from the page and loaded on the machine |
+| S3c | The dashboard rebuilt on Vite, Svelte and ECharts, with browser tests | every browser test passes on the new page; the owner looks at it; one start on the machine |
 | S4 | Dockerfile and compose, deployed to a home server on the LAN rather than the development Mac | one brew driven through the container |
 | S5 | Home Assistant: state published over MQTT (method reconfirmed with the user then) | entities change during a brew |
 | S6 | Optional: xBloom account sync, brew rating fed back into recipe revision | decided later |
@@ -771,6 +772,179 @@ If the live check shows that one rule of the table refuses most recipes (a
 ratio off the 0.5 step is the likely one: the library's own notes mention
 1:16.2), the rule is not loosened in this slice: the count is recorded and
 the choice between refusing and rounding is put to the owner.
+
+## S3c — the dashboard on Vite, Svelte and ECharts
+
+Decided by the owner on 2026-11-14, after two independent advisers compared
+staying hand-written, Preact with htm and no build, and a build toolchain.
+The owner chose the toolchain. The hand-written page rebuilds a whole view
+on every state change, so forms lose their typing, live readings flicker and
+animations replay unless each is worked around by hand, and every chart
+feature (zoom, replay, annotations, a calendar) has to be drawn from
+nothing. What the owner asked for next is mostly those.
+
+**Outcome.** The same dashboard, at the same address, built from Svelte 5
+components in TypeScript with ECharts for the charts, served by the hub as
+static files under the same Content-Security-Policy, and covered by browser
+tests that run against the simulator. Nothing it can do to the machine
+changes.
+
+**Stack, pinned exactly in `frontend/package.json` with the lock file
+committed:** Vite, Svelte 5, `@sveltejs/vite-plugin-svelte`, TypeScript,
+`svelte-check`, ECharts (imported per module: line, custom, calendar, the
+dataZoom, markLine, markPoint, tooltip and legend components, the canvas
+renderer). No router library (the hash routes stay), no state library, no
+UI kit, no motion library (Svelte's own transitions, CSS, and the Web
+Animations API). Browser tests: `pytest-playwright` in the project's own
+Python environment, with Chromium installed by Playwright into its own
+cache; the owner agreed to that install.
+
+**Supply chain.** Every npm command runs in a throwaway container (OrbStack
+on the Mac), never on the host: see the dispositions below. Node runs only
+to build; the hub at run time is Python serving files. S4's image builds in
+a separate stage with the same script and copies only the output.
+
+Code in the page shares the origin, and so the token, with everything the
+page can do: a compromised package in the bundle could load and start a
+brew without the dialog. The confirmation and the one-time ticket guard
+against mistakes and other callers, not against code in the page. This is
+new with this slice; the hand-written page had no third-party code.
+
+**Layout.**
+
+- `frontend/` holds the sources: `src/` (components, one module per page),
+  `src/lib/hub.ts` (the token, `api()`, the event stream, the one-request
+  lock), `src/lib/i18n.ts` (the two dictionaries, moved as they are).
+- `vite build` writes to `src/xbloom_hub/web/`, which is git-ignored and
+  shipped in the sdist and the wheel by
+  `[tool.hatch.build] artifacts = ["src/xbloom_hub/web/**"]` (hatchling
+  leaves ignored files out otherwise, and `uv build` makes the wheel from
+  the sdist, so a wheel-only setting would not reach it). Vite builds with
+  `base: "./"`: every asset is referenced relative to the page, so the same
+  build works at `/next/` and at `/`.
+- **Serving, one rule per phase.**
+  - Steps 2 to 5: `/` serves the old `static/`, always. A second
+    `StaticFiles` mount at `/next/` serves `web/`, placed before the `/`
+    mount, and is added only when `web/index.html` exists at start. A
+    checkout with no build starts and serves `/` as today.
+  - Step 6: `/` serves `web/` only; the `/next/` mount and `static/` are
+    gone. If `web/index.html` is missing at start, the hub refuses to start
+    with a message naming the build command (`npm --prefix frontend run
+    build`). It never serves an empty site.
+- The old `static/` stays, untouched, until the new page passes every
+  browser test; then it is removed in the same pull request that makes the
+  new one the default.
+
+**What does not change.**
+
+- The CSP string in `app.py`, byte for byte. Vite's output is external
+  script and style files; no inline script, no inline style element, no
+  `eval`. Dynamic sizes and positions go through the CSSOM (`el.style.x`)
+  and the Web Animations API, which the CSP allows. ECharts tooltips are
+  drawn on the canvas or built as DOM by the page, never from an HTML
+  string; no `{@html}` anywhere; `innerHTML` stays out of the page's own
+  code. A test loads every page with a listener for
+  `securitypolicyviolation` and fails on any.
+- Text from the hub, a recipe or a stranger is a text node, always. A
+  recipe source is a link only when it starts with `https://`.
+- The token arrives in the address fragment once, lives in localStorage,
+  and is sent only in the `Authorization` header.
+- Safety invariants 1 and 3: start is a REST call with a confirmation that
+  shows the recipe as the hub holds it when the machine armed; the ticket
+  stays in memory, is dropped when the machine leaves the armed state, and
+  is kept only after a `no_cup` refusal; Stop is never disabled or replaced
+  by a redraw while a brew runs; one request at a time.
+
+**Security dispositions for this slice.** Reviewed read-only on 2026-11-14:
+no P0, two P1, six P2, four P3, one P4. The owner decided the two P1s and the
+WebKit download the same day.
+
+| ID | Finding | Disposition |
+|---|---|---|
+| C1 P1 | Building runs every package's code with the owner's rights on a Mac that holds credentials | FIX (owner: containers). `frontend/npm.sh` runs every npm command (`ci`, `install <pkg>@x.y.z`, `run build`, `run check`) in `docker run --rm` on a Node image pinned by digest, mounting only `frontend/` and `src/xbloom_hub/web/`, no home, ssh agent, env file or `secrets/`; `node_modules` in a named volume, not the host tree. Stop: an npm command about to run on the host. Step 2 |
+| C2 P1 | A package in the bundle can start a brew with the page's token | FIX + ACCEPT (owner). The build fails if the bundle holds a module from a package outside {`svelte` and its runtime dependencies as resolved, `echarts`, `zrender`, `tslib`}, read from the bundler's module graph in a Vite plugin; a planted extra import is shown to fail it. The residual risk, a compromised package on that list, is accepted by the owner. Applies from step 2 |
+| C3 P2 | Adding a package runs its scripts; pins drift | FIX. `frontend/.npmrc`: `ignore-scripts=true`, `save-exact=true`, and a release cooldown of 7 days (`min-release-age`, or `before=<date>` if the container's npm does not know it; checked with `npm config get` in the container). Top level, exactly: `vite`, `svelte`, `@sveltejs/vite-plugin-svelte`, `typescript`, `svelte-check`, `echarts`. Step 2 |
+| C4 P3 | Nothing checks the lock file | FIX. On every change to `package-lock.json` a script checks each `resolved` is on `registry.npmjs.org` and each entry has a `sha512` integrity; `npm audit signatures` and `npm audit` run in the container; the pull request lists packages added and removed. An invalid signature fails; missing provenance is recorded. Step 2 |
+| C5 P2 | ECharts' HTML tooltip writes strings into `innerHTML` with inline styles | FIX. No ECharts tooltip in HTML mode and no string formatter: the reading under the pointer is a Svelte component fed by the chart's axis-pointer events (`tooltip.show: false`), or `renderMode: 'richText'`. Untrusted names only in data and series names. Step 3, with C7's tests |
+| C6 P2 | The CSP test sees only what it triggers, in one engine | FIX. The listener is installed by `add_init_script` and a CSP console message also fails; chart tests hover and zoom, and the dialog and transitions are exercised; the CSP tests run in Chromium and WebKit (owner agreed to the download). Page code sets dynamic styles only per property; no static `style="…"` in templates. Steps 1 to 6 |
+| C7 P2 | The text scans for `innerHTML` cannot read a Svelte bundle | FIX. `test_the_page_has_nothing_inline_and_puts_no_data_in_innerhtml` and `test_views_that_fetch_never_paint_directly` are replaced by browser tests that put hostile strings (markup with an event handler, `{a|b}`, 10 000 characters) into every untrusted sink: recipe name, notes and meta, history and compare labels, chart series and legend names, the console log and gate lines; each shows as text with no new element. `meta.source` cases: `javascript:`, `data:`, a leading space and `HTTPS://` are not links; `https://` is, with `rel="noopener noreferrer"`. No `{@html}`, no spread of data onto elements, no element named from data. Step 1 for the old page, then for each new page |
+| C8 P2 | Vite's dev server cannot run under the CSP and has had file-read advisories | FIX. The development loop is `vite build --watch` in the container into `web/`, served at `/next/` by a simulator hub with a throwaway token. The dev server is not used against any hub, never with `--host`, never with a proxy to a real hub |
+| C9 P2 | Stop is disabled while another request is in flight | FIX. Stop is exempt from the one-request lock (the hub serialises stops itself), on the old page in step 1 and on the new one; a test holds the start request, drives the simulator into brewing and sees Stop enabled and its POST reach the hub |
+| C10 P3 | Token handling order and boundaries | FIX. `hub.ts` reads `#t=` and clears it with `history.replaceState` before mounting or routing; `api()` takes only absolute `/api/…` paths; the token and the ticket never go into logs, error text, `import.meta.env` or a `.env`; `/api/community` sends the token on GET too. Test: after opening with `#t=`, the hash is clean and no text holds the token. Step 2 |
+| C11 P3 | Ordering: the step-2 console and the step-5 brewing view would hold controls before step 6 | FIX. Until step 6 `/next/` has no action buttons (the console is read-only, the brewing view has no Stop) and `/` is the control surface during any real brew |
+| C12 P3 | Build output hygiene | FIX. `.gitignore` gains `frontend/node_modules` and `src/xbloom_hub/web`; Vite `emptyOutDir: true` |
+| C13 P4 | Inlined assets as `data:` URIs | FIX. `build.assetsInlineLimit: 0` |
+
+**Order.** Each step is one pull request, through the usual gate.
+
+1. **Browser tests against the current page**, before anything else:
+   `tests/browser/`, a fixture that starts a simulator hub on a free port
+   with a throwaway token and data directory. Flows: open with the token;
+   load, confirm, start, follow the brew, finished view; stop during a
+   brew; a `no_cup` refusal keeps the ticket; a load made elsewhere shows
+   "load again" instead of Start; cancel; a recipe named with markup shows
+   as text; and four that hold the safety behaviour itself:
+   - one request at a time: the start (and the load) request is held with
+     `page.route`, the button is pressed again, and exactly one request
+     reaches the hub; Stop is the exception (C9): with the start request
+     held and the simulator brewing, Stop is enabled and its POST arrives;
+   - Stop is not replaced: during a brew a handle is taken on the Stop
+     element, several snapshots pass, and it is the same connected node,
+     still enabled;
+   - the ticket goes when the machine leaves the armed state: the page loads
+     (so it holds a ticket), then the same slug is cancelled and loaded
+     again through REST, and the page shows "load again" and no Start;
+   - the start confirmation shows the recipe as the hub returns it: the
+     dialog's name, dose, total water, pour count with end time, and grind
+     (what the old dialog shows) equal the hub's `plan` answer for that
+     slug.
+   Each of these four is shown to fail when the line it guards is removed
+   from a copy of the old `app.js` (for one request at a time, the whole
+   guard: the `busy` early return in `act()` and the `disabled: busy` on
+   Start and Load, so that two POSTs reach the hub; the stable Stop node, the ticket drop on leaving the armed state,
+   `recipeFacts(info)` in the confirmation), and to pass on the old page as
+   it is. The rest of the list: the recipe editor saves, refuses a taken id, keeps typing after
+   a refusal; history, a record, compare; the console; both languages; no
+   CSP violation and no script error on any page. These must pass on the
+   old page as they stand.
+2. **The toolchain and the shell**: `frontend/`, the build, the hub serving
+   `web/`, the layout (sidebar, tab bar, status, the ground), the hash
+   routes, `hub.ts`, `i18n.ts`, and the Console page. The Python tests that
+   read `app.js` as text are moved to read the built files, or replaced by
+   browser tests where they stood in for one.
+3. **Charts**: one `Chart` component on ECharts, kept alive across updates
+   (data replaced, zoom and pointer kept). History, a record, compare.
+4. **Recipes**: the list, one recipe with its plan, the editor.
+5. **Home at rest and finished**, and the brewing view's readouts and chart.
+6. **Last, the safety-relevant parts**: loading, the armed view, the start
+   confirmation, Stop, cancel, release and acquire. Then the switch, and
+   the old `static/` removed.
+
+During steps 2 to 5 the new page is served at `/next/` and the old one at
+`/`; the browser tests run against both. At step 6 the new page moves to
+`/` and every test runs against it.
+
+**Acceptance.** Every flow of step 1 passes against the new page; no CSP
+violation; `svelte-check` and the build have no errors; the Python suite
+passes; during steps 2 to 5, with `web/` built, `GET /` is the old page,
+`GET /next/` is the new one and every asset it references answers 200 with
+the CSP header; after `npm --prefix frontend run build` and `uv build`, both
+`unzip -l dist/*.whl` and `tar -tzf dist/*.tar.gz` list
+`xbloom_hub/web/index.html` and every asset it references; after step 6, starting
+with no `web/` stops with the message; the owner looks at it at 2560 px and on the phone. Then one load
+and one start of the 25 ml test recipe on the machine, owner present, as
+in S3 step 1.
+
+**Non-goals.** New features (they follow, on the new page); server-side
+rendering, SvelteKit, a second server process; changing any REST or MCP
+contract.
+
+**Rollback.** Until step 6 the old page is what `/` serves. After it, the
+pull request of step 6 is reverted.
+
+**Stops.** A package needs its install script and it is not one named
+here: stop and ask. An npm command is about to run on the host: stop. The CSP would have to change: stop and ask. A browser
+test of a safety flow fails on the new page: the switch waits.
 
 ## S0 — prove the radio path
 
