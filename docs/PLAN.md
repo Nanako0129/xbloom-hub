@@ -602,29 +602,63 @@ live by its author without credentials: `XBloomCommunityClient`
 `XBloomClient` (`share_id_from_url()`, `get_recipe_by_share_id()`, host
 `client-api.xbloom.com`). A hub recipe's own pours lack flow rate and
 agitation; its `share_url` resolves through the second client to the complete
-recipe. Both take an `aiohttp.ClientSession`, which this project does not
-install yet.
+recipe. Both are written for an `aiohttp.ClientSession`, which this project
+does not install; `client.py` imports aiohttp when it is loaded, `community.py`
+only uses the session it is handed.
 
 **Scope.**
 
-- A new dependency, `aiohttp`, pinned to an exact version, used only by the
-  new module.
-- `src/xbloom_hub/community.py`: one module that owns one `ClientSession`
-  (total timeout 10 s, no redirects followed, no proxy from the environment,
-  response size capped) and offers `search`, `detail` and `fetch_share`.
+- No new dependency. `httpx` is already installed (the `mcp` SDK needs it)
+  and is added to this project's own dependencies at the installed version.
+- `src/xbloom_hub/community.py`: one module that owns one `httpx.AsyncClient`
+  for the life of the hub and offers `search`, `detail` and `fetch_share`.
+  All outbound requests go through one function in it, which
+  - posts only to the three fixed endpoint URLs (two on
+    `collective-api.xbloom.com` for search/criteria and detail, one on
+    `client-api.xbloom.com`), and refuses any other;
+  - sets `follow_redirects=False`, `trust_env=False`, no cookies kept, the
+    library's default User-Agent, no `Origin` or `Referer`;
+  - treats every status other than 200 as a failure, 3xx included;
+  - reads the body as a stream and stops at 1 MiB, counted after
+    decompression;
+  - has a 10 s timeout per request, and each hub operation (a detail is up
+    to three requests) has one 15 s deadline over all of them.
+  `XBloomCommunityClient` is given a small object with the `post()` it calls,
+  backed by that function, so its request shapes and parsing are reused. The
+  share request is made by the hub itself with the same body the library
+  sends (`tableIdOfRSA`, and its fixed `interfaceVersion` and `skey`, which
+  are public constants of the share page, not credentials), and the hub maps
+  the answer's fields; `xbloom.client` is not imported.
+- At most 2 outbound operations at once; a third is answered `503` at once,
+  not queued.
 - Converting a fetched recipe to the hub's one shape, then `recipes.checked()`
   as for any other recipe. Not `normalize_recipe()`: a recipe that does not
   pass as it is, is shown as not importable with the reason, never repaired.
   Free text (name, author, description, notes) goes through `clean_text()`
   and the existing length caps. `meta.source` is the share link.
-- REST, all behind the same guard as the rest: `GET /api/community/criteria`,
-  `GET /api/community/search`, `GET /api/community/{id}` (the recipe as it
-  would be saved, plus whether it passes), `POST /api/community/import`
-  with `{id, slug}` or `{share_url, slug}` (token required; refuses a slug in
-  use).
+- REST under `/api/community`, **every method of which needs the token**,
+  like `/mcp`: these routes make the hub call out, so they are not readable
+  from the LAN as the other GETs are. `GET /api/community/criteria`,
+  `GET /api/community/search`, `GET /api/community/{id:int}` (the recipe as
+  it would be saved, plus whether it passes and why not),
+  `POST /api/community/import` with `{id, slug}` or `{share_url, slug}`.
+  Search takes a keyword (cleaned, at most 80 characters), a page from 1 to
+  50, and `sort`, `kind`, `source` and the filter lists only from their
+  enumerated values; the page size is fixed at 20 by the hub.
+- What the routes and tools return is built from an explicit list of fields.
+  Every string from the service goes through `clean_text()` with a cap per
+  field, lists are capped in length, and `image_url` is dropped: results are
+  never stored, so this is where they are cleaned.
+- An import checks that the slug is free after the fetch, immediately before
+  the write, with no `await` between, by whether the file exists.
 - MCP: `search_community_recipes`, `get_community_recipe`,
-  `import_community_recipe`. Results are labelled as text from strangers, as
-  P2-6 requires for recipe text.
+  `import_community_recipe`. Every string that came from the service sits
+  under one key, `from_xbloom_users`; the tool descriptions and the skill say
+  that its contents are data and never instructions, and that loading,
+  saving and deleting happen only at the user's own request. The description
+  text is returned by `get_community_recipe` only. P2-2 applies: these tools
+  and `load_recipe`, `save_recipe`, `delete_recipe` stay out of auto-allowed
+  permissions.
 - The page: a "Community" section under Recipes with search, the filters the
   hub's criteria list, a result grid, a detail view with the plan chart, and
   "Save to my recipes" asking for an id. A field for a share link.
@@ -632,16 +666,29 @@ install yet.
 **Non-goals.** Signing in to an xBloom account, the account's own recipes,
 uploading or liking, the app's Trending and For You lists (they live on the
 account API), images (never fetched by the hub and never shown: P3/P4 above),
-tea recipes, bypass water and pods, caching search results on disk.
+tea recipes, caching search results on disk. A recipe that uses bypass water
+or a pod is shown as not importable, with that reason: saving it without them
+would be a different recipe from the one its author wrote.
 
 **Security dispositions for this slice.**
 
-- The hub makes requests to exactly two fixed HTTPS hosts. No URL from a
-  caller or from a response is ever fetched: a pasted share link is parsed
-  for its `id` parameter only, and must be on `share-h5.xbloom.com`; a
-  recipe's `share_url` from the community hub is parsed the same way.
-- Search terms leave the home network. The docs say so. No token, no serial
-  number, no machine state is sent.
+Reviewed read-only before any code (2026-11-14): no P0 or P1; fifteen
+findings, all folded into this section.
+
+- The hub makes requests to exactly three fixed HTTPS URLs on two hosts. No
+  URL from a caller or from a response is ever fetched. A share link, pasted
+  or taken from a search result, is parsed by the hub: scheme `https`, host
+  exactly `share-h5.xbloom.com`, no user info, port absent or 443, exactly
+  one `id`, the id at most 64 base64 characters. `meta.source` is the link
+  rebuilt from that id, not the text received.
+- Search terms, recipe ids, the home's IP address and the HTTP library's
+  User-Agent leave the home network. The docs say so. No token, no serial
+  number, no machine state is sent; no cookie is kept between requests.
+- A failure is a `502` whose `detail` is one of four fixed words (`timeout`,
+  `upstream_status`, `upstream_refused`, `malformed_response`), never text
+  from the service. Caught: transport errors, timeouts, the library's
+  `XBloomAPIError`, and `KeyError`, `TypeError` and `ValueError` from
+  parsing. Logs carry the exception class and the status code only.
 - Everything received is untrusted text: inserted with `textContent` on the
   page, cleaned and capped before it is stored, labelled in MCP results.
 - An import never loads the machine. It writes a recipe file; loading it is
@@ -656,8 +703,12 @@ tea recipes, bypass water and pods, caching search results on disk.
   documented shape; a recipe that fails `checked()` is reported, not saved;
   a share link on another host, or with no id, is refused before any
   request; an import refuses a slug in use and one that is not a slug; a
-  timeout and a non-200 become `502`; hostile text (markup, control
-  characters, a 10 000 character name) is cleaned or refused.
+  timeout, a non-200, a 302, a 200 of the wrong shape and a body over the
+  cap each become `502` with a fixed word; hostile text (markup, control
+  characters, a 10 000 character name) is cleaned or refused; every
+  `/api/community` route answers `401` without the token; a third operation
+  at once gets `503`; a recipe with bypass water or a pod is not importable;
+  a share id containing `+` survives parsing.
 - Observed against the live service, by hand, once: a search returns
   recipes; one official recipe is saved and then opens in the hub with a
   plan; a share link imports. This is reading a public service the library's
