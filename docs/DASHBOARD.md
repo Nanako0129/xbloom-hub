@@ -26,9 +26,11 @@ is plain HTTP on the LAN.
 
 ### Pairing a phone
 
-On a device that already holds the token, open the console at the hub's
-network address (not `localhost` or `127.0.0.1`, which a phone cannot
-reach; the panel says so if it is) and press "Add a device". Scan the QR
+On a device that already holds the token, open the console and press "Add
+a device". A browser keeps the token per address, so on the hub's own
+computer that is usually the page at `127.0.0.1`; opened there, the QR
+code carries the first host in `XBLOOM_ALLOWED_HOSTS` that is not
+loopback (the panel names it), and warns only if there is none. Scan the QR
 code with the phone's camera. The code inside it works once, for two
 minutes, and is void when the panel closes or a new one is made; the phone
 trades it for the token and from then on can do what the first device can.
