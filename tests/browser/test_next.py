@@ -71,8 +71,8 @@ def test_the_console_reads_and_switches_language(next_ui, hub):
     next_ui.locator("#language").select_option("zh-Hant")
     expect(next_ui.locator("#tabs")).to_contain_text("配方")
     assert next_ui.evaluate("document.documentElement.lang") == "zh-Hant"
-    # No control that changes the machine on /next/ until the safety flows move (C11).
-    expect(next_ui.locator("#view button")).to_have_count(0)
+    # Step 6: the link can be released from here, as on the current page.
+    expect(next_ui.get_by_role("button", name="讓出連線").first).to_be_visible()      # in the language just chosen
 
 
 def test_both_dashboards_are_served_with_the_policy(hub):
@@ -102,11 +102,11 @@ def test_history_lists_brews_as_text_and_compares_two(next_ui, hub):
     expect(rows).to_have_count(2)
     expect(next_ui.get_by_text(HOSTILE).first).to_be_visible()
     _no_markup(next_ui)
-    compare = next_ui.locator("#view a.pill")
-    expect(compare).to_have_attribute("aria-disabled", "true")
+    compare = next_ui.get_by_role("button", name="Compare the two selected")
+    expect(compare).to_be_disabled()
     rows.nth(0).locator("input").check()
     rows.nth(1).locator("input").check()
-    expect(compare).to_have_attribute("aria-disabled", "false")
+    expect(compare).to_be_enabled()
     compare.click()
     next_ui.wait_for_function("() => location.hash.startsWith('#/compare/')")
     expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
@@ -160,9 +160,8 @@ def test_the_recipe_list_and_a_recipe_show_strangers_text_as_text(next_ui, hub):
     expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
     expect(next_ui.locator("#view a[href^='javascript']")).to_have_count(0)
     _no_markup(next_ui)
-    # Loading is not on /next/ yet: the page sends it to the current dashboard.
-    expect(next_ui.locator("#view a[href='/#/recipes/hostile']")).to_have_count(1)
-    expect(next_ui.locator("#view button")).to_have_count(1)        # the chart's legend only
+    expect(next_ui.get_by_role("button", name="Load onto machine")).to_be_enabled()
+    expect(next_ui.get_by_role("button", name="Delete")).to_be_visible()
 
 
 def test_only_an_https_source_is_a_link_on_next(next_ui, hub):
@@ -234,14 +233,12 @@ def test_home_at_rest_shows_the_scale_recipes_and_the_last_brew(next_ui, hub):
     _no_markup(next_ui)
 
 
-def test_armed_shows_the_recipe_and_sends_start_to_the_current_page(next_ui, hub):
+def test_armed_by_another_client_offers_load_again_not_start(next_ui, hub):
     assert hub.api("POST", "/api/machine/load", {"slug": "short"}).status_code == 200
     expect(next_ui.get_by_role("heading", name="Short test")).to_be_visible()
     expect(next_ui.locator("#view .readouts .readout")).to_have_count(3)
-    expect(next_ui.locator("#view a[href='/#/']")).to_have_count(1)
-    # Nothing on /next/ can start or stop the machine yet (C11).
-    for name in ("Start brew", "Stop", "Load onto machine", "Cancel load"):
-        expect(next_ui.get_by_role("button", name=name)).to_have_count(0)
+    expect(next_ui.get_by_role("button", name="Load again")).to_be_visible()
+    expect(next_ui.get_by_role("button", name="Start brew")).to_have_count(0)
 
 
 def test_a_brew_follows_live_then_shows_its_end(next_ui, hub):
@@ -256,8 +253,7 @@ def test_a_brew_follows_live_then_shows_its_end(next_ui, hub):
     assert node.evaluate("(e) => e.isConnected") and water.get_attribute("aria-label") != first
     expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
     expect(next_ui.locator("#view .pours li[data-now='true']")).to_have_count(1)
-    expect(next_ui.locator("#view a[href='/#/']")).to_have_count(1)   # Stop is on the current page
-    expect(next_ui.get_by_role("button", name="Stop")).to_have_count(0)
+    expect(next_ui.locator("#stop")).to_be_enabled()
     expect(next_ui.get_by_role("heading", name="Brew finished")).to_be_visible(timeout=20000)
     expect(next_ui.locator("#view svg.dot-cup")).to_be_visible()
     expect(next_ui.locator("#view .readouts .readout")).to_have_count(3)

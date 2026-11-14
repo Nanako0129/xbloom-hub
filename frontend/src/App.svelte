@@ -13,6 +13,8 @@
   import Recipe from "./pages/Recipe.svelte";
   import RecipeEdit from "./pages/RecipeEdit.svelte";
   import Home from "./pages/Home.svelte";
+  import Confirm from "./components/Confirm.svelte";
+  import { work } from "./lib/actions.svelte";
 
   listen();
 
@@ -37,6 +39,10 @@
     const timer = setTimeout(() => { delete view.dataset.enter; }, ENTER_MS);
     return () => clearTimeout(timer);
   });
+  // While a request is on its way the pill shows; the stylesheet keys on body[data-busy].
+  $effect(() => {
+    if (work.busy || work.stopping) document.body.dataset.busy = ""; else delete document.body.dataset.busy;
+  });
   // The ground's lights follow the machine.
   $effect(() => { document.body.dataset.state = s?.state ?? ""; });
 </script>
@@ -60,6 +66,7 @@
     <span id="status-detail">{statusDetail}</span>
   </header>
   <main id="view" tabindex="-1" bind:this={view}>
+    {#if work.flash}<p class="notice" class:bad={work.flash.bad} id="flash">{work.flash.text}</p>{/if}
     {#if route.current.name === "home"}
       <Home />
     {:else if route.current.name === "console"}
@@ -84,4 +91,9 @@
       {#key route.hash}<Compare ids={route.current.ids ?? []} />{/key}
     {/if}
   </main>
+</div>
+
+<Confirm />
+<div id="working" role="status" aria-live="polite">
+  <span class="beat"><i></i><i></i><i></i></span><span>{work.stopping ? t("working.stop") : work.text}</span>
 </div>

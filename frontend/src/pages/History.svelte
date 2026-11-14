@@ -44,8 +44,8 @@
   </ul>
   {#if brews.length > 1}
     <div class="actions">
-      <a class="pill" class:disabled={picked.length !== 2} aria-disabled={picked.length !== 2}
-        href={picked.length === 2 ? `#/compare/${picked.map(encodeURIComponent).join("/")}` : undefined}>{t("action.compare")}</a>
+      <button class="quiet" disabled={picked.length !== 2}
+        onclick={() => { location.hash = `#/compare/${picked.map(encodeURIComponent).join("/")}`; }}>{t("action.compare")}</button>
     </div>
   {/if}
 {/if}
