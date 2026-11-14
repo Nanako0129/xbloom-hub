@@ -651,7 +651,11 @@ def test_a_brew_file_that_is_not_a_record_does_not_break_the_list(tmp_path):
 def test_views_that_fetch_never_paint_directly():
     """A view that awaits can finish after the address has moved on. It paints
     through painter(), which checks; a bare show() there once drew a recipe
-    page over the loaded screen."""
+    page over the loaded screen.
+
+    This reads the script's text because the suite has no browser: what the
+    page does cannot be observed here. The views are exercised by hand in a
+    browser against the simulator before each change to them is merged."""
     import re
 
     script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")

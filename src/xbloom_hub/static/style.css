@@ -205,7 +205,7 @@ a.recipe svg.bar { display: block; width: 100%; height: 8px; margin-top: 14px; b
 .chart .mark { stroke: var(--text); stroke-width: 1; opacity: 0.25; }
 .chart svg { touch-action: pan-y; cursor: crosshair; }
 .chart .cursor-line { stroke: var(--text); stroke-width: 1; opacity: 0.45; }
-.chart .cursor-dot { stroke: var(--card); stroke-width: 2; fill: var(--faint); }
+.chart .cursor-dot { stroke: var(--card); stroke-width: 2; stroke-dasharray: none; opacity: 1; fill: var(--faint); }
 .chart .cursor-dot.water { fill: var(--water); }
 .chart .cursor-dot.coffee { fill: var(--coffee); }
 .chart .tip-box { fill: var(--raised); stroke: var(--hairline); }

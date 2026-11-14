@@ -162,7 +162,7 @@ function readout(value, label, series, spoken) {
 
 // ---- chart -------------------------------------------------------------------
 // series: [{cls, points: [[seconds, value], ...]}], marks: [seconds]
-const TIP_W = 200;           // the reading's box, in the chart's own units: fits "Planned water  300 ml"
+const TIP_W = 240;           // the reading's box, in the chart's own units: fits "Water (other brew)  131 ml"
 function chart(series, marks, legend) {
   // Drawn in its own coordinate space and scaled to the column; the type is
   // sized so it is still readable when that column is a phone.
@@ -217,7 +217,7 @@ function chart(series, marks, legend) {
       const at = after && after[0] > before[0] && time >= before[0]
         ? [time, before[1] + ((after[1] - before[1]) * (time - before[0])) / (after[0] - before[0])] : before;
       marksOn[i].setAttribute("cx", px(at[0])); marksOn[i].setAttribute("cy", py(at[1]));
-      const name = names[s.cls] || names[s.cls.split(" ")[0]] || "";
+      const name = names[s.cls] || (s.cls.endsWith(" other") ? t("chart.other", { name: names[s.cls.split(" ")[0]] || "" }) : "");
       rows[i + 1].textContent = `${name}  ${Math.round(at[1] * 10) / 10} ${s.cls.startsWith("coffee") ? "g" : "ml"}`;
     });
     const left = px(time) > W / 2 ? px(time) - TIP_W - 14 : px(time) + 14;
@@ -712,16 +712,18 @@ async function viewRecipeEdit(view, slug, from) {
   const paint = painter(view);
   const key = location.hash;
   if (!editing || editing.key !== key) {
-    let draft = NEW_RECIPE();
-    if (from) {
-      paint(h("p", { class: "muted" }, t("loading")));
-      const stored = await api("GET", `/api/recipes/${encodeURIComponent(from)}`);
-      draft = { ...draft, ...stored, ratio: Number(String(stored.ratio).split(":")[1]), meta: { ...draft.meta, ...(stored.meta || {}) },
-        pours: stored.pours.map((pour) => ({ ...pour })) };
-      if (!slug) draft.name = t("edit.copy_of", { name: stored.name });
-    }
-    editing = { key, draft, slug: slug || "", errors: null };
+    const mine = { key, draft: NEW_RECIPE(), slug: slug || "", errors: null, ready: null };
+    editing = mine;
+    mine.ready = from ? api("GET", `/api/recipes/${encodeURIComponent(from)}`).then((stored) => {
+      mine.draft = { ...mine.draft, ...stored, ratio: Number(String(stored.ratio).split(":")[1]),
+        meta: { ...mine.draft.meta, ...(stored.meta || {}) }, pours: stored.pours.map((pour) => ({ ...pour })) };
+      if (!slug) mine.draft.name = t("edit.copy_of", { name: stored.name });
+    }) : Promise.resolve();
   }
+  const mine = editing;
+  paint(h("p", { class: "muted" }, t("loading")));
+  await mine.ready;
+  if (editing !== mine) return;
   const { draft } = editing;
   const total = h("p", { class: "muted num", id: "edit-total" });
   const sum = () => {
@@ -731,10 +733,10 @@ async function viewRecipeEdit(view, slug, from) {
   const redraw = () => { last = ""; render(); };
   const pours = draft.pours.map((pour, i) => h("li", { class: "pour-edit" },
     h("div", { class: "n" }, String(i + 1)),
-    field(t("edit.volume"), numberInput(pour, "volume_ml", { min: 1, step: 1 }, sum)),
+    field(t("edit.volume"), numberInput(pour, "volume_ml", { min: 1, max: 240, step: 1 }, sum)),
     field(t("edit.temperature"), numberInput(pour, "temperature_c", { min: 20, max: 98, step: 1 })),
     field(t("edit.flow"), numberInput(pour, "flow_rate", { min: 3, max: 3.5, step: 0.1 })),
-    field(t("edit.pause"), numberInput(pour, "pause_s", { min: 0, step: 1 })),
+    field(t("edit.pause"), numberInput(pour, "pause_s", { min: 0, max: 59, step: 1 })),
     field(t("edit.pattern"), choice(pour, "pattern", [[1, t("pattern.1")], [2, t("pattern.2")], [3, t("pattern.3")]])),
     field(t("edit.agitate_before"), onOff(pour, "agitate_before", 1, 2)),
     field(t("edit.agitate_after"), onOff(pour, "agitate_after", 1, 2)),
@@ -742,6 +744,17 @@ async function viewRecipeEdit(view, slug, from) {
       on: { click: () => { draft.pours.splice(i, 1); redraw(); } } }) : null));
   const save = () => act(async () => {
     const target = slug || editing.slug.trim();
+    if (!slug) {
+      // A new recipe gets an id of its own: well formed, not the word this
+      // page uses for "new", and not one that is already taken.
+      const taken = /^[a-z0-9][a-z0-9-]{0,63}$/.test(target) && target !== "new"
+        ? await api("GET", `/api/recipes/${encodeURIComponent(target)}`).then(() => true, (error) => { if (error.code === "not_found") return false; throw error; })
+        : null;
+      if (taken !== false) {
+        editing.errors = { slug: taken ? "in_use" : "bad_slug" };
+        throw new Error(t(taken ? "edit.slug_taken" : "edit.slug_bad"));
+      }
+    }
     const meta = Object.fromEntries(Object.entries(draft.meta).filter(([, value]) => value && value.trim()));
     const body = { ...draft, ratio: `1:${draft.ratio}`, pours: draft.pours.map((pour) => ({ ...pour })) };
     if (Object.keys(meta).length) body.meta = meta; else delete body.meta;
@@ -766,7 +779,7 @@ async function viewRecipeEdit(view, slug, from) {
           slug ? null : field(t("edit.slug"), textInput(editing, "slug", { maxlength: 64, pattern: "[a-z0-9][a-z0-9-]*", placeholder: "my-recipe", autocapitalize: "none", spellcheck: "false" }), true),
           field(t("edit.cup"), choice(draft, "cup_type", [[1, t("cup_type.1")], [2, t("cup_type.2")], [3, t("cup_type.3")], [4, t("cup_type.4")]])),
           field(t("fact.dose"), numberInput(draft, "dose_g", { min: 1, max: 25, step: 1 }, sum)),
-          field(t("edit.ratio"), numberInput(draft, "ratio", { min: 1, max: 25, step: 0.5 }, sum)),
+          field(t("edit.ratio"), numberInput(draft, "ratio", { min: 5, max: 25, step: 0.5 }, sum)),
           field(t("edit.grind"), h("input", { type: "checkbox", checked: draft.grind, on: { change: (event) => { draft.grind = event.target.checked; } } })),
           field(t("edit.grind_size"), numberInput(draft, "grind_size", { min: 1, max: 80, step: 1 })),
           field(t("edit.rpm"), numberInput(draft, "grinder_speed_rpm", { min: 60, max: 120, step: 10 }))),
@@ -774,7 +787,7 @@ async function viewRecipeEdit(view, slug, from) {
         h("ol", { class: "pours-edit" }, pours),
         total,
         h("div", { class: "actions" },
-          button(t("action.add_pour"), null, { class: "quiet", type: "button", on: { click: () => {
+          button(t("action.add_pour"), null, { class: "quiet", type: "button", disabled: draft.pours.length >= 9, on: { click: () => {
             const lastPour = draft.pours[draft.pours.length - 1];
             draft.pours.push({ ...lastPour, pause_s: 0 }); redraw();
           } } }))),
@@ -999,7 +1012,9 @@ function render() {
   }
 }
 
-window.addEventListener("hashchange", () => { flash = null; last = ""; library = null; if (route().name === "console") refreshGate(); render(); document.getElementById("view").focus(); });
+window.addEventListener("hashchange", () => { flash = null; last = ""; library = null;
+  if (editing && editing.key !== location.hash) editing = null;    // an abandoned draft is not picked up again
+  if (route().name === "console") refreshGate(); render(); document.getElementById("view").focus(); });
 setInterval(() => { if (route().name === "console") refreshGate(); }, 3000);
 for (const node of document.querySelectorAll("[data-icon]")) node.append(iconSvg(node.dataset.icon));
 applyLanguage();
