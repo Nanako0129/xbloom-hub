@@ -1,0 +1,97 @@
+# The dashboard
+
+The hub serves a page at `/`: what the machine is doing now, the recipe
+library, past brews, and a console. It is three static files and a dictionary
+(`src/xbloom_hub/static/`), with no build step and nothing loaded from
+elsewhere.
+
+## Opening it
+
+The hub prints nothing secret, so the token is handed to a browser once, in
+the address:
+
+```
+http://<hub address>:8377/#t=<the contents of the token file>
+```
+
+The page moves the token into the browser's storage and removes it from the
+address bar. After that the plain address is enough on that device. Reading
+needs no token; loading, starting, stopping, cancelling and deleting do.
+
+To try it with no machine:
+
+```sh
+XBLOOM_RADIO=sim XBLOOM_HUB_TOKEN_FILE=secrets/hub_token uv run xbloom-hub
+```
+
+`XBLOOM_SIM_BREW_S` sets how long a simulated brew takes (default 45 s).
+
+## From another device on the network
+
+By default the hub listens on `127.0.0.1` only. To use the page from a phone:
+
+```sh
+XBLOOM_BIND=0.0.0.0
+XBLOOM_ALLOWED_HOSTS=localhost,127.0.0.1,<the hub's LAN address>,<its .local name>
+```
+
+`XBLOOM_ALLOWED_HOSTS` is the list of names the hub answers to. It must be
+exact: the hub refuses to start with a wildcard or an empty entry, because
+that check is what stops a web page elsewhere from reaching the hub through a
+DNS trick. The connection is plain HTTP, so the token crosses the network
+unencrypted; keep the hub on a network you trust.
+
+## What each part does
+
+- **Now** follows the machine. Ready: pick a recipe. Loaded: the same three
+  things the machine's own display shows (grind, ratio, start), the recipe as
+  it will be sent, and Start and Cancel. Brewing: elapsed time, water poured,
+  coffee in the cup, the curve against the recipe's planned water line, and
+  Stop.
+- **Recipes** shows each pour's share of the water, volume, temperature, flow
+  and pause, and when it should start and end. Recipes are written through
+  Claude Code; the page loads and deletes them.
+- **History** keeps every brew the hub saw: the curve, when each pour was
+  planned to start and when it did, and two brews overlaid.
+- **Console** shows the link, lets the official app have the machine
+  (release) and takes it back (acquire), lists state changes and every command
+  the hub sent to the machine, and sets the language.
+
+## Starting a brew
+
+Start is offered only for a recipe this page loaded. The hub gives each load a
+one-time ticket; the page that loaded holds it, and Start sends it back. A
+recipe loaded by something else (an assistant, another browser) shows "Load
+again" instead: starting something the page did not load would mean confirming
+a recipe on the strength of a name.
+
+The confirmation shows the dose, total water and grind **as they will be
+sent**. After it, the hub writes the start command once. What happens next is
+the machine's: the page shows a brew when the machine reports one.
+
+A start is refused if the machine's last cradle event says the cup was taken
+off. If the machine has reported nothing about the cup, the page says so and
+the start is allowed. The scale is not used for this: it stays tared after a
+load and reads zero with a cup on it.
+
+## Languages
+
+Interface text lives in `static/i18n.js`, one dictionary per language with the
+same keys. Traditional Chinese and English are included. The page picks from
+the browser's languages and remembers a choice made in the console.
+
+To add one: copy a dictionary block, translate the values, add its name to
+`LANGUAGE_NAMES`. A test fails if a language is missing a key or a
+placeholder, or if the page uses a key that does not exist. `app.js` and
+`index.html` contain no interface text of their own, and "xbloom hub" is a
+name: it is not translated.
+
+## How it is kept safe
+
+- Every response carries a Content-Security-Policy that allows scripts and
+  styles only from the hub itself, so there is no inline script.
+- Text from recipes and from the machine is inserted as text, never as markup.
+  A recipe named `<img src=x onerror=...>` shows as exactly that.
+- A recipe's source becomes a link only if it starts with `https://`.
+- The event stream and the read-only addresses need no token and carry no
+  ticket and no serial number.

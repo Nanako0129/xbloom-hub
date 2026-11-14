@@ -8,9 +8,11 @@ writes without going through ``write_confirmed``.
 """
 from __future__ import annotations
 
+import collections
 import contextlib
 import contextvars
 import logging
+import time
 
 from xbloom.ble import FFE1_UUID, frame_command_code
 
@@ -47,6 +49,9 @@ def start_permit():
 
 _FFE1 = FFE1_UUID.lower()
 
+# The last writes that passed, for the console: (unix time, command code).
+RECENT: collections.deque[tuple[float, int]] = collections.deque(maxlen=100)
+
 
 class GateRefused(RuntimeError):
     """A write the gate would not pass. Nothing reached the radio."""
@@ -72,6 +77,7 @@ def make_gated(base: type) -> type:
         async def write_gatt_char(self, char_specifier, data, response=None):
             code = check(char_specifier, data)
             self.__dict__.setdefault("gate_log", []).append(code)
+            RECENT.append((time.time(), code))
             log.info("gate pass %s", code)
             return await super().write_gatt_char(char_specifier, data, response=response)
 

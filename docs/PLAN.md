@@ -469,7 +469,9 @@ structure: dark surface, large numerals, the brew screen's "pours n/m",
 elapsed time and two-series chart (water, coffee). Its logo, photographs and
 artwork are not used. What it lacks and this adds: the planned line under the
 curve, actual pour times, comparison between brews, the console. Interface
-text is Traditional Chinese.
+text comes from one dictionary per language (Traditional Chinese and English
+to begin with), chosen from the browser's languages and changeable in the
+console; the owner asked for this while the page was being built.
 
 **Security (P1-3, P1-4, P2-1).** Every response carries
 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src

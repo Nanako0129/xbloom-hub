@@ -222,6 +222,9 @@ class Machine:
             "samples": {"weight": [], "water": []}, "events": [],
             "_t0": time.monotonic(),
         }
+        # The last water reading belongs to whatever came before this brew.
+        # Unknown until the machine reports again, rather than a wrong number.
+        self._water = None
         self._save_brew()
         log.info("brew %s opened (%s)", self._brew["id"], opened_by)
 

@@ -428,3 +428,51 @@ def test_allowed_hosts_cannot_be_a_wildcard():
         with pytest.raises(SystemExit):
             check_allowed_hosts(bad)
     assert check_allowed_hosts(["localhost", "hub.local"]) == ["localhost", "hub.local"]
+
+
+# ---- interface text --------------------------------------------------------------
+def _dictionaries():
+    import re
+
+    text = (STATIC_DIR / "i18n.js").read_text(encoding="utf-8")
+    blocks = {}
+    for code in ("zh-Hant", "en"):
+        start = text.index(f'"{code}": {{') if code == "zh-Hant" else text.index("\n  en: {")
+        end = text.index("\n  },", start)
+        blocks[code] = dict(re.findall(r'"([a-z_.]+)":\s*"((?:[^"\\\\]|\\\\.)*)"', text[start:end]))
+    return blocks
+
+
+def test_every_language_has_the_same_keys_and_placeholders():
+    import re
+
+    blocks = _dictionaries()
+    zh, en = blocks["zh-Hant"], blocks["en"]
+    assert len(en) > 100 and set(zh) == set(en), set(zh) ^ set(en)
+    for key in en:
+        assert set(re.findall(r"\{(\w+)\}", zh[key])) == set(re.findall(r"\{(\w+)\}", en[key])), key
+        assert zh[key].strip() and en[key].strip(), key
+
+
+def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
+    import re
+
+    keys = set(_dictionaries()["en"])
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    used = set(re.findall(r'\bt\("([a-z_.]+)"', script))
+    used |= set(re.findall(r'data-i18n(?:-label)?="([a-z_.]+)"', html))
+    assert len(used) > 80 and used <= keys, used - keys
+    # Keys built at run time: every value the hub can send has an entry.
+    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "busy", "released")),
+                           ("ending", ("finished", "stopped", "abandoned", "home", "asleep", "link_lost")),
+                           ("error", ("unauthorized", "not_ready", "bad_ticket", "no_cup", "recipe_is_loaded",
+                                      "recipe_invalid", "machine_refused", "machine_unanswered",
+                                      "cancel_failed", "not_found", "foreign_origin")),
+                           ("meta", ("bean", "roaster", "process", "roast", "source", "notes"))):
+        for value in values:
+            assert f"{prefix}.{value}" in keys, f"{prefix}.{value}"
+    # All interface text lives in i18n.js: none in the script or the markup.
+    han = re.compile(r"[\u4e00-\u9fff]")
+    assert not han.search(script) and not han.search(html)
+    assert not re.search(r">\s*[A-Za-z][^<]*<", html.split("<body>")[1])

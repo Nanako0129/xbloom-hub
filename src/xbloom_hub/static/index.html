@@ -1,1 +1,40 @@
-<!doctype html><title>xbloom hub</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>xbloom hub</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="status" aria-live="polite">
+  <span id="status-lamp" class="lamp"></span>
+  <span id="status-text" data-i18n="status.connecting"></span>
+  <span id="status-detail"></span>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<nav id="tabs" data-i18n-label="tab.label">
+  <a href="#/" data-tab="home" data-i18n="tab.home"></a>
+  <a href="#/recipes" data-tab="recipes" data-i18n="tab.recipes"></a>
+  <a href="#/history" data-tab="history" data-i18n="tab.history"></a>
+  <a href="#/console" data-tab="console" data-i18n="tab.console"></a>
+</nav>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <div id="confirm-body"></div>
+    <div class="actions">
+      <button value="no" class="quiet" id="confirm-no"></button>
+      <button value="yes" id="confirm-yes"></button>
+    </div>
+  </form>
+</dialog>
+
+<script src="i18n.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>

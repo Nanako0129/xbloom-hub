@@ -18,7 +18,8 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from . import errors
 from .machine import Machine
-from .recipes import RecipeInvalid, RecipeStore
+from . import gate
+from .recipes import RecipeInvalid, RecipeStore, as_sent, plan
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
@@ -167,12 +168,25 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
     async def stop(request):
         return JSONResponse(await machine.stop())
 
+    async def recipe_plan(request):
+        recipe = store.get(request.path_params["slug"])
+        if recipe is None:
+            return JSONResponse({"error": "not_found"}, 404)
+        return JSONResponse({"recipe": recipe, "as_sent": as_sent(recipe), "plan": plan(recipe)})
+
+    async def gate_recent(request):
+        return JSONResponse([{"at": at, "code": code} for at, code in gate.RECENT])
+
     async def brew_list(request):
         return JSONResponse(brews.list() if brews else [])
 
     async def brew_item(request):
         record = brews.get(request.path_params["brew_id"]) if brews else None
-        return JSONResponse(record) if record else JSONResponse({"error": "not_found"}, 404)
+        if record is None:
+            return JSONResponse({"error": "not_found"}, 404)
+        # The planned line for the chart, from the recipe the brew carried.
+        record["plan"] = plan(record["recipe"]) if record.get("recipe") else None
+        return JSONResponse(record)
 
     async def release(request):
         await machine.release()
@@ -230,6 +244,8 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/events", events),
             Route("/api/recipes", recipe_list),
             Route("/api/recipes/{slug}", recipe_item, methods=["GET", "PUT", "DELETE"]),
+            Route("/api/recipes/{slug}/plan", recipe_plan),
+            Route("/api/gate", gate_recent),
             Route("/api/machine/load", load, methods=["POST"]),
             Route("/api/machine/cancel", cancel, methods=["POST"]),
             Route("/api/machine/start", start, methods=["POST"]),

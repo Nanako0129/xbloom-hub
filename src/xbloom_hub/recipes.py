@@ -206,6 +206,26 @@ def as_sent(recipe: dict) -> dict:
             "pour_volumes_ml": volumes, "total_ml": sum(volumes)}
 
 
+def plan(recipe: dict) -> dict:
+    """When each pour should start and end, from the recipe's own numbers:
+    volume / flow rate for the pour, then its pause. Arithmetic, not
+    measurement: whether the machine keeps its nominal flow rate, and what a
+    change of temperature costs, is what a brew record is compared against
+    this to find out. Grinding time is not included; zero is the first pour.
+    """
+    volumes = as_sent(recipe)["pour_volumes_ml"]
+    pours, clock, total = [], 0.0, 0
+    for pour, volume in zip(recipe["pours"], volumes):
+        duration = volume / float(pour["flow_rate"])
+        total += volume
+        pours.append({"start_s": round(clock, 1), "end_s": round(clock + duration, 1),
+                      "volume_ml": volume, "cumulative_ml": total,
+                      "temperature_c": pour["temperature_c"], "pause_s": pour["pause_s"]})
+        clock += duration + pour["pause_s"]
+    return {"pours": pours, "total_ml": total,
+            "pour_end_s": pours[-1]["end_s"] if pours else 0.0}
+
+
 def to_machine(recipe: dict) -> dict:
     """The dictionary xbloom-py's encoder reads, from a `checked()` recipe only."""
     return {
