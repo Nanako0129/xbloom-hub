@@ -3,7 +3,8 @@
 # `headersHelper`. Reads the token from a file so it never sits in a config
 # file, an environment variable or a command line.
 set -eu
-file="${XBLOOM_HUB_TOKEN_FILE:-secrets/hub_token}"
+# Default relative to this script, not to wherever it was started from.
+file="${XBLOOM_HUB_TOKEN_FILE:-$(dirname "$0")/../secrets/hub_token}"
 [ -s "$file" ] || { echo "xbloom-hub: no token in $file" >&2; exit 1; }
 exec python3 -c '
 import json, sys

@@ -12,6 +12,7 @@ bad values instead of refusing them.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from pathlib import Path
@@ -44,9 +45,16 @@ def clean_text(value: str) -> str:
     """Free text is shown to people and to an assistant. Drop everything that
     is not a visible character or a plain space: control characters, bidi
     overrides and other format characters, line and paragraph separators."""
-    return "".join(ch for ch in value
-                   if unicodedata.category(ch)[0] != "C"
-                   and unicodedata.category(ch) not in ("Zl", "Zp")).strip()
+    out = []
+    for ch in value:
+        category = unicodedata.category(ch)
+        if ch in "\n\r\t" or category in ("Zl", "Zp"):
+            out.append(" ")                 # a line break separates words
+        elif ch in "\u200c\u200d":
+            out.append(ch)                  # joiners: emoji, Persian, Indic text
+        elif category[0] != "C":
+            out.append(ch)
+    return " ".join("".join(out).split())
 
 
 def _whole(value: object) -> int | None:
@@ -56,7 +64,7 @@ def _whole(value: object) -> int | None:
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, float) and value.is_integer():
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
         return int(value)
     return None
 
@@ -118,7 +126,9 @@ def checked(recipe: object) -> dict:
                        "agitate_after"), f"pours.{i}.", errors))
             flow = item.get("flow_rate")
             if isinstance(flow, (int, float)) and not isinstance(flow, bool):
-                if abs(flow * 10 - round(flow * 10)) > 1e-9:
+                if not -1e6 < flow < 1e6:               # inf, nan, absurd
+                    errors[f"pours.{i}.flow_rate"] = "flow_out_of_range"
+                elif abs(flow * 10 - round(flow * 10)) > 1e-9:
                     errors[f"pours.{i}.flow_rate"] = "must_be_a_step_of_0.1"
                 else:
                     item["flow_rate"] = round(float(flow), 1)
@@ -144,7 +154,10 @@ def checked(recipe: object) -> dict:
                 else:
                     meta[key] = clean_text(value)
 
-    library = recipe_validate.normalize_recipe({
+    # Not normalize_recipe(): it is a share-link import shim that fills a
+    # missing ratio with 1:16 and snaps an off-grid one, which would accept a
+    # recipe the author never wrote.
+    library = {
         "name": name,
         "cup_type": top.get("cup_type"),
         "dose_g": top.get("dose_g"),
@@ -153,15 +166,22 @@ def checked(recipe: object) -> dict:
         "grinder_speed_rpm": top.get("grinder_speed_rpm"),
         "pour_count": len(pours),
         "pours": pours,
-    })
-    for field, code in recipe_validate.validate_recipe(library).items():
+    }
+    try:
+        found = recipe_validate.validate_recipe(library)
+    except (OverflowError, ValueError, TypeError):
+        # The library does arithmetic before range checks; a number too large
+        # to be a float lands here.
+        found = {"recipe": "not_a_usable_number"}
+    for field, code in found.items():
         errors.setdefault(field, code)
     if errors:
         raise RecipeInvalid(errors)
+    ratio = f"1:{float(str(library['ratio']).split(':', 1)[1]):g}"      # "1:16.0" -> "1:16"
 
     out = {
         "name": name, "cup_type": library["cup_type"], "dose_g": library["dose_g"],
-        "ratio": library["ratio"], "grind": grind, "grind_size": library["grind_size"],
+        "ratio": ratio, "grind": grind, "grind_size": library["grind_size"],
         "grinder_speed_rpm": library["grinder_speed_rpm"], "pours": pours,
     }
     if meta:
@@ -214,7 +234,7 @@ class RecipeStore:
         out = []
         for path in sorted(self._dir.glob("*.yaml")):
             try:
-                data = yaml.safe_load(path.read_text())
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
             except (yaml.YAMLError, UnicodeDecodeError, OSError):
                 data = None
             # A hand-edited file that is not a recipe is listed, not fatal,
@@ -230,15 +250,16 @@ class RecipeStore:
         if not path.exists():
             return None
         try:
-            data = yaml.safe_load(path.read_text())
-        except (yaml.YAMLError, UnicodeDecodeError) as err:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, UnicodeDecodeError, OSError) as err:
             raise RecipeInvalid({"file": "not_yaml"}) from err
         return checked(data)
 
     def put(self, slug: str, recipe: object) -> dict:
         path = self._path(slug)
         recipe = checked(recipe)
-        path.write_text(yaml.safe_dump(recipe, sort_keys=False, allow_unicode=True))
+        path.write_text(yaml.safe_dump(recipe, sort_keys=False, allow_unicode=True),
+                        encoding="utf-8")
         return recipe
 
     def delete(self, slug: str) -> bool:

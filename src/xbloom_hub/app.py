@@ -15,11 +15,9 @@ from starlette.middleware import Middleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
-from xbloom.ble import CommandRefused, CommandUnanswered
-
-from .gate import GateRefused
-from .machine import CancelFailed, Machine, NotReady
-from .recipes import BadSlug, RecipeInvalid, RecipeStore, to_machine
+from . import errors
+from .machine import Machine
+from .recipes import RecipeInvalid, RecipeStore, to_machine
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
@@ -106,6 +104,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         if request.method == "GET":
             recipe = store.get(slug)
             return JSONResponse(recipe) if recipe else JSONResponse({"error": "not_found"}, 404)
+        errors.guard_loaded(machine, slug)
         if request.method == "DELETE":
             return JSONResponse({"deleted": store.delete(slug)})
         return JSONResponse(store.put(slug, await _json(request)))
@@ -137,13 +136,8 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             raise RecipeInvalid({"body": "not_a_json_object"})
         return body
 
-    def _error(status: int, name: str):
-        async def handler(request, exc):
-            body = {"error": name, "detail": str(exc)}
-            if isinstance(exc, RecipeInvalid):
-                body["fields"] = exc.errors
-            return JSONResponse(body, status)
-        return handler
+    async def failure(request, exc):
+        return JSONResponse(errors.describe(exc), errors.TABLE[type(exc)][0])
 
     from mcp.server.transport_security import TransportSecuritySettings
 
@@ -194,14 +188,6 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
             Middleware(Guard, token=token),
         ],
-        exception_handlers={
-            BadSlug: _error(400, "bad_slug"),
-            RecipeInvalid: _error(422, "recipe_invalid"),
-            NotReady: _error(409, "not_ready"),
-            CancelFailed: _error(502, "cancel_failed"),
-            CommandRefused: _error(502, "machine_refused"),
-            CommandUnanswered: _error(502, "machine_unanswered"),
-            GateRefused: _error(500, "gate_refused"),
-        },
+        exception_handlers={exc: failure for exc in errors.TABLE},
         lifespan=lifespan,
     )

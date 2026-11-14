@@ -13,8 +13,15 @@ KEY = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
 
 
 def tree() -> ET.Element:
-    subprocess.run(["adb", "shell", "uiautomator", "dump", "/sdcard/ui.xml"],
-                   check=True, capture_output=True)
+    # uiautomator can fail ("could not get idle state" on an animating screen)
+    # and still exit 0, leaving the previous dump in place. Coordinates from a
+    # stale screen send the next tap to the wrong place, so remove the file
+    # first and require the success line.
+    subprocess.run(["adb", "shell", "rm", "-f", "/sdcard/ui.xml"], check=True, capture_output=True)
+    dump = subprocess.run(["adb", "shell", "uiautomator", "dump", "/sdcard/ui.xml"],
+                          check=True, capture_output=True)
+    if b"dumped to" not in dump.stdout:
+        raise SystemExit(f"uiautomator did not dump the screen: {dump.stdout.decode().strip()}")
     xml = subprocess.run(["adb", "exec-out", "cat", "/sdcard/ui.xml"],
                          check=True, capture_output=True).stdout.decode()
     return ET.fromstring(xml)

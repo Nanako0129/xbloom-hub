@@ -6,11 +6,10 @@ person's decision, made at the machine or in the dashboard.
 from __future__ import annotations
 
 from mcp.server.mcpserver import MCPServer
-from xbloom.ble import CommandRefused, CommandUnanswered
 
-from .gate import GateRefused
-from .machine import CancelFailed, Machine, NotReady
-from .recipes import BadSlug, RecipeInvalid, RecipeStore, as_sent, checked, to_machine
+from . import errors
+from .machine import Machine
+from .recipes import RecipeStore, as_sent, checked, to_machine
 
 INSTRUCTIONS = (
     "Recipes and machine state for an xBloom Studio coffee machine. "
@@ -20,18 +19,13 @@ INSTRUCTIONS = (
 
 
 def _failure(err: Exception) -> dict:
-    if isinstance(err, RecipeInvalid):
-        return {"ok": False, "error": "recipe_invalid", "fields": err.errors}
-    if isinstance(err, BadSlug):
-        return {"ok": False, "error": "bad_slug",
-                "detail": "use lowercase letters, digits and hyphens, at most 64 characters"}
-    if isinstance(err, NotReady):
-        return {"ok": False, "error": "not_ready", "detail": str(err)}
-    return {"ok": False, "error": type(err).__name__, "detail": str(err)}
+    body = {"ok": False, **errors.describe(err)}
+    if body["error"] == "bad_slug":
+        body["detail"] = "use lowercase letters, digits and hyphens, at most 64 characters"
+    return body
 
 
-_EXPECTED = (RecipeInvalid, BadSlug, NotReady, CancelFailed, CommandRefused,
-             CommandUnanswered, GateRefused)
+_EXPECTED = tuple(errors.TABLE)
 
 
 def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
@@ -64,6 +58,7 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
                              "replacing any recipe already stored under that slug.")
     async def save_recipe(slug: str, recipe: dict) -> dict:
         try:
+            errors.guard_loaded(machine, slug)
             recipe = store.put(slug, recipe)
             return {"ok": True, "slug": slug, "recipe": recipe, "as_sent": as_sent(recipe)}
         except _EXPECTED as err:
@@ -72,6 +67,7 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
     @server.tool(description="Remove a recipe from the library.")
     async def delete_recipe(slug: str) -> dict:
         try:
+            errors.guard_loaded(machine, slug)
             return {"ok": True, "deleted": store.delete(slug)}
         except _EXPECTED as err:
             return _failure(err)
@@ -96,14 +92,26 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
         except _EXPECTED as err:
             return _failure(err)
         # machine.load() returns a one-time start ticket. It stays in the hub.
-        return {"ok": True, **machine.snapshot()}
+        snapshot = machine.snapshot()
+        if snapshot["state"] != "armed":
+            # The machine took the recipe but has not said it is waiting. Do
+            # not let "ok" stand for "armed".
+            return {**snapshot, "ok": False, "error": "not_confirmed",
+                    "detail": "the recipe was sent but the machine has not reported it is "
+                              "waiting; check machine_state before telling anyone to start"}
+        return {"ok": True, **snapshot}
 
     @server.tool(description="Take back a recipe that was loaded and has not been started. "
                              "Only works while the machine is armed.")
     async def cancel_load() -> dict:
         try:
-            return {"ok": True, **(await machine.cancel())}
+            snapshot = await machine.cancel()
         except _EXPECTED as err:
             return _failure(err)
+        if snapshot["state"] == "armed":
+            return {**snapshot, "ok": False, "error": "not_confirmed",
+                    "detail": "the cancel was sent but the machine still reports the recipe "
+                              "as loaded"}
+        return {"ok": True, **snapshot}
 
     return server

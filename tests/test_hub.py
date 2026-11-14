@@ -359,7 +359,8 @@ def test_mcp_design_save_load_cancel(client):
     hot = {**RECIPE, "name": "Guji", "grind": True, "grind_size": 62, "grinder_speed_rpm": 90,
            "meta": {"bean": "Guji natural"}}
     bad = call(client, "save_recipe", slug="guji", recipe={**hot, "grind_size": 120})
-    assert bad == {"ok": False, "error": "recipe_invalid", "fields": {"grind_size": "grind_out_of_range"}}
+    assert (bad["ok"], bad["error"], bad["fields"]) == (
+        False, "recipe_invalid", {"grind_size": "grind_out_of_range"})
     assert call(client, "validate_recipe", recipe={**hot, "rpm": 90})["fields"] == {"rpm": "unknown_field"}
     assert call(client, "list_recipes")["recipes"] == []            # nothing was stored
     assert call(client, "save_recipe", slug="Bad Slug", recipe=hot)["error"] == "bad_slug"
@@ -396,7 +397,7 @@ def test_fractions_the_encoder_would_change_are_refused():
                   "pours": [{**pour, "volume_ml": 25.0, "flow_rate": 3}]})
     assert (ok["dose_g"], ok["cup_type"], ok["pours"][0]["volume_ml"]) == (5, 2, 25)
     assert all(type(v) is int for v in (ok["dose_g"], ok["cup_type"], ok["pours"][0]["volume_ml"]))
-    assert checked({**RECIPE, "name": "a\u202eb\u2028c\x9fd"})["name"] == "abcd"
+    assert checked({**RECIPE, "name": "a\u202eb\u2028c\x9fd"})["name"] == "ab cd"
 
 
 def test_as_sent_stays_close_for_every_dose_and_ratio():
@@ -437,3 +438,71 @@ def test_token_helper_fails_closed_on_whitespace(tmp_path):
                              env={"XBLOOM_HUB_TOKEN_FILE": str(token), "PATH": "/usr/bin:/bin"})
         assert (run.returncode == 0) == ok, (content, run.stderr)
     assert run.stdout.strip() == '{"Authorization": "Bearer abc"}'
+
+
+# ---- from the pre-push review -------------------------------------------- #
+def test_ratio_is_never_filled_in_or_snapped():
+    for ratio in (None, "", "1:16.2", "1:nan", "1:inf", "1:1e1", "16", 16, "1:4.5", "1:25.5"):
+        recipe = {k: v for k, v in RECIPE.items() if k != "ratio"}
+        if ratio is not None:
+            recipe["ratio"] = ratio
+        with pytest.raises(RecipeInvalid) as err:
+            checked(recipe)
+        assert "ratio" in err.value.errors, (ratio, err.value.errors)
+    assert checked({**RECIPE, "ratio": "1:5.0"})["ratio"] == "1:5"
+
+
+def test_absurd_numbers_are_refused_not_crashes():
+    pour = RECIPE["pours"][0]
+    for bad in ({"pours": [{**pour, "flow_rate": float("inf")}]},
+                {"pours": [{**pour, "flow_rate": float("nan")}]},
+                {"pours": [{**pour, "volume_ml": 10 ** 400}]},
+                {"pours": [{**pour, "temperature_c": float("inf")}]},
+                {"dose_g": 10 ** 400}, {"dose_g": float("nan")}):
+        with pytest.raises(RecipeInvalid):
+            checked({**RECIPE, **bad})
+
+
+def test_text_keeps_its_word_breaks_and_joiners():
+    ok = checked({**RECIPE, "name": "bloom\n45 ml",
+                  "meta": {"notes": "first\r\nthen\ttwo  pours", "bean": "a\u200db"}})
+    assert ok["name"] == "bloom 45 ml"
+    assert ok["meta"] == {"notes": "first then two pours", "bean": "a\u200db"}
+
+
+def test_a_loaded_recipe_cannot_be_changed_or_deleted(client):
+    assert call(client, "save_recipe", slug="one", recipe=RECIPE)["ok"]
+    assert call(client, "load_recipe", slug="one")["state"] == "armed"
+    assert call(client, "save_recipe", slug="one", recipe={**RECIPE, "name": "x"})["error"] == "recipe_is_loaded"
+    assert call(client, "delete_recipe", slug="one")["error"] == "recipe_is_loaded"
+    assert client.put("/api/recipes/one", json=RECIPE, headers=AUTH).status_code == 409
+    assert client.delete("/api/recipes/one", headers=AUTH).status_code == 409
+    assert call(client, "save_recipe", slug="two", recipe=RECIPE)["ok"]      # other slugs are free
+    assert call(client, "cancel_load")["state"] == "idle"
+    assert call(client, "delete_recipe", slug="one")["deleted"]
+
+
+def test_load_is_not_ok_unless_the_machine_says_armed(tmp_path, monkeypatch):
+    import xbloom_hub.machine as machine_module
+
+    class Silent(SimListener):                      # takes the recipe, never reports 31
+        async def send_prepare(self, recipe):
+            return None
+
+    monkeypatch.setattr(machine_module.Machine, "_wait_for",
+                        lambda self, predicate, timeout: asyncio.sleep(0, result=predicate()))
+    machine = Machine(SimRadio(), Silent)
+    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
+    with TestClient(app) as c:
+        deadline = time.monotonic() + 3
+        while machine.state != "idle":
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+        assert call(c, "save_recipe", slug="one", recipe=RECIPE)["ok"]
+        loaded = call(c, "load_recipe", slug="one")
+        assert loaded["ok"] is False and loaded["error"] == "not_confirmed"
+
+
+def test_same_failure_has_the_same_name_on_rest_and_mcp(client):
+    rest = client.post("/api/machine/cancel", headers=AUTH).json()["error"]
+    assert rest == call(client, "cancel_load")["error"] == "not_ready"
