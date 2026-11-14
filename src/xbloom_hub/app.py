@@ -302,13 +302,18 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         if cap is None:
             raw = await request.body()
         else:
-            # Refused before it is read in full: as soon as what arrives passes
-            # the cap, whatever length it states (a chunked body states none).
-            raw = b""
+            # Refused before it is read in full: by the length it states (so a
+            # client cannot state a large body and hold the request open), or
+            # as soon as what arrives passes the cap (a chunked body states none).
+            length = request.headers.get("content-length")
+            if length is not None and (not length.isdigit() or int(length) > cap):
+                raise BodyTooLarge(f"over {cap} bytes")
+            buffer = bytearray()
             async for chunk in request.stream():
-                raw += chunk
-                if len(raw) > cap:
+                buffer += chunk
+                if len(buffer) > cap:
                     raise BodyTooLarge(f"over {cap} bytes")
+            raw = bytes(buffer)
         try:
             body = json.loads(raw)
         except ValueError:

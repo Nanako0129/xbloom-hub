@@ -42,7 +42,7 @@
   // A message belongs to the page it was shown on.
   $effect(() => { route.hash; work.flash = null; });
   // A pairing's outcome, from a QR code opened on this device (S3d).
-  const PAIR_TEXT = { claiming: "pair.claiming", paired: "pair.claim_ok", failed: "pair.claim_failed" } as const;
+  const PAIR_TEXT = { claiming: "pair.claiming", paired: "pair.claim_ok", failed: "pair.claim_failed", nostore: "pair.claim_nostore" } as const;
   // While a request is on its way the pill shows; the stylesheet keys on body[data-busy].
   $effect(() => {
     if (work.busy || work.stopping) document.body.dataset.busy = ""; else delete document.body.dataset.busy;
@@ -71,7 +71,7 @@
   </header>
   <main id="view" tabindex="-1" bind:this={view}>
     {#if pairing.claim !== "none"}
-      <p class="notice" class:bad={pairing.claim === "failed"} id="pair-claim">{t(PAIR_TEXT[pairing.claim])}</p>
+      <p class="notice" class:bad={pairing.claim === "failed" || pairing.claim === "nostore"} id="pair-claim">{t(PAIR_TEXT[pairing.claim])}</p>
     {/if}
     {#if work.flash}<p class="notice" class:bad={work.flash.bad} id="flash">{work.flash.text}</p>{/if}
     {#if route.current.name === "home"}

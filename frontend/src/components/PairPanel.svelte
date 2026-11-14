@@ -2,6 +2,7 @@
   // Add a device: a QR code of this page's address with a pairing code
   // (docs/PLAN.md, S3d). The code lives two minutes, works once, and is void
   // when this panel closes or a new one is made.
+  import { onDestroy } from "svelte";
   import qrcode from "qrcode-generator";
   import { api } from "../lib/hub.svelte";
   import { t } from "../lib/i18n.svelte";
@@ -14,6 +15,7 @@
   let open = $state(false);
   let code = $state("");
   let left = $state(0);
+  let deadline = 0;           // counted from a fixed moment: a background tab's timers slow down
   let paired = $state(false);
   let failure = $state("");
 
@@ -35,6 +37,7 @@
     try {
       const answer = await api<{ code: string; expires_in_s: number }>("POST", "/api/pair/start");
       code = answer.code;
+      deadline = Date.now() + answer.expires_in_s * 1000;
       left = answer.expires_in_s;
       open = true;
     } catch (err) {
@@ -48,9 +51,15 @@
     api("POST", "/api/pair/cancel").catch(() => {});
   }
 
+  // Leaving the page voids a code still shown, as Close does.
+  onDestroy(() => { if (code) api("POST", "/api/pair/cancel").catch(() => {}); });
+
   $effect(() => {
     if (!open || !code) return;
-    const tick = setInterval(() => { left = Math.max(0, left - 1); if (!left) code = ""; }, 1000);
+    const tick = setInterval(() => {
+      left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      if (!left) code = "";
+    }, 1000);
     const poll = setInterval(async () => {
       const answer = await api<{ state: string }>("POST", "/api/pair/status").catch(() => null);
       if (answer?.state === "claimed") { paired = true; code = ""; }

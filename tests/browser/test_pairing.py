@@ -67,3 +67,14 @@ def test_a_failed_claim_keeps_the_token_this_device_has(ui, hub):
     assert "#p=" not in ui.evaluate("location.href")
     assert ui.evaluate("localStorage.getItem('xbloom-hub-token')") == TOKEN
     load_from_page(ui, hub, "short")
+
+
+def test_leaving_the_console_voids_the_code_shown(ui, hub):
+    import httpx
+    show_code(ui, hub)
+    status = lambda: httpx.post(f"{hub.base}/api/pair/status",
+                                headers={"Authorization": f"Bearer {TOKEN}"}).json()["state"]
+    assert status() == "waiting"
+    go(ui, hub, "#/recipes")
+    ui.wait_for_timeout(500)
+    assert status() == "none"

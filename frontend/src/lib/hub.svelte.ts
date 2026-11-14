@@ -23,19 +23,17 @@ window.addEventListener("hashchange", takeToken);
 // Only the exact form counts; the code leaves the address at once, before
 // anything else runs, and is then traded for the token. A failed trade
 // leaves a token this device already holds as it is.
-export const pairing = $state({ claim: "none" as "none" | "claiming" | "paired" | "failed" });
+export const pairing = $state({ claim: "none" as "none" | "claiming" | "paired" | "failed" | "nostore" });
 
 function takePairing(): void {
   const match = location.hash.match(/^#p=([A-Za-z0-9_-]{22})$/);
   if (!match) return;
   history.replaceState(null, "", location.pathname + "#/");
   pairing.claim = "claiming";
-  fetch("/api/pair/claim", { method: "POST", headers: { "Content-Type": "application/json" },
-                             body: JSON.stringify({ code: match[1] }) })
-    .then(async (response) => {
-      const data = response.ok ? await response.json() : null;
+  api<{ token: string }>("POST", "/api/pair/claim", { code: match[1] })
+    .then((data) => {
       if (typeof data?.token !== "string" || !data.token) throw new Error("refused");
-      localStorage.setItem(TOKEN_KEY, data.token);
+      try { localStorage.setItem(TOKEN_KEY, data.token); } catch { pairing.claim = "nostore"; return; }
       pairing.claim = "paired";
     })
     .catch(() => { pairing.claim = "failed"; });

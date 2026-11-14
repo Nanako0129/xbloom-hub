@@ -128,6 +128,12 @@ def test_an_oversized_claim_is_refused_before_it_is_read(client):
     streamed = client.post("/api/pair/claim", content=chunks(), headers={"Content-Type": "application/json"})
     assert streamed.status_code == 413 and streamed.json()["error"] == "body_too_large"
 
+    # A large stated length is refused on the header, not after waiting for
+    # bytes that may never come: only 10 of the 5000 stated are sent here.
+    stated_only = client.post("/api/pair/claim", content=b'{"code":1}',
+                              headers={"Content-Type": "application/json", "Content-Length": "5000"})
+    assert stated_only.status_code == 413
+
 
 def test_each_claim_logs_one_line_with_the_address_and_no_secret(client, caplog):
     code = start(client)
