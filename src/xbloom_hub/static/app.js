@@ -292,10 +292,19 @@ const stateName = (name) => (MESSAGES.en[`state.${name}`] ? t(`state.${name}`) :
 const reasonText = (code) => (code && MESSAGES.en[`reason.${code}`] ? t(`reason.${code}`) : code || "");
 const endingText = (code) => (!code ? t("ending.running") : MESSAGES.en[`ending.${code}`] ? t(`ending.${code}`) : code);
 
-async function act(fn) {
+// While a request to the hub is on its way, say so: a pill with what is being
+// done, wherever on the page the press was. A load takes a couple of seconds.
+const workingText = h("span", {});
+const workingNode = h("div", { id: "working", role: "status", "aria-live": "polite" },
+  h("span", { class: "beat" }, h("i", {}), h("i", {}), h("i", {})), workingText);
+
+async function act(fn, what) {
   if (busy) return;
+  workingText.textContent = what || t("working");
+  document.body.dataset.busy = "";
   busy = true; flash = null; render();
   try { await fn(); } catch (error) { flash = { text: error.message, bad: true }; }
+  delete document.body.dataset.busy;
   busy = false; render();
 }
 
@@ -380,6 +389,7 @@ function renderStatus() {
   if (!hubReachable) { lamp.dataset.state = "offline"; text.textContent = t("status.no_hub"); detail.textContent = ""; return; }
   if (!state) { text.textContent = t("status.connecting"); return; }
   lamp.dataset.state = state.state;
+  document.body.dataset.state = state.state;      // the ground's lights follow the machine
   text.textContent = stateName(state.state);
   const name = (state.brew && state.brew.recipe_name) || (state.recipe && state.recipe.name) || "";
   detail.textContent = state.state === "offline" ? reasonText(state.error) : name;
@@ -582,8 +592,8 @@ function viewArmed() {
   left.push(h("div", { class: "actions" },
     mine
       ? button(t("action.start"), "play", { disabled: busy || !info, on: { click: () => confirmStart(info) } })
-      : button(t("action.reload"), "load", { disabled: busy, on: { click: () => act(async () => { await api("POST", "/api/machine/cancel"); await load(slug); }) } }),
-    button(t("action.cancel_load"), "close", { class: "quiet", disabled: busy, on: { click: () => act(() => api("POST", "/api/machine/cancel")) } })));
+      : button(t("action.reload"), "load", { disabled: busy, on: { click: () => act(async () => { await api("POST", "/api/machine/cancel"); await load(slug); }, t("working.load")) } }),
+    button(t("action.cancel_load"), "close", { class: "quiet", disabled: busy, on: { click: () => act(() => api("POST", "/api/machine/cancel"), t("working.cancel")) } })));
   return [
     h("h1", {}, state.recipe.name || slug),
     h("div", { class: "cols" }, h("div", {}, left),
@@ -661,12 +671,12 @@ async function confirmStart(info) {
         if (error.code !== "no_cup") ticket = null;
         throw error;
       }
-    });
+    }, t("working.start"));
   }
 }
 
 async function confirmStop() {
-  if (await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) act(() => api("POST", "/api/machine/stop"));
+  if (await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) act(() => api("POST", "/api/machine/stop"), t("working.stop"));
 }
 
 // On the home screen this sits beside two links, so it asks first.
@@ -791,7 +801,7 @@ async function viewRecipeEdit(view, slug, from) {
     }
     editing = null; library = null; plans.delete(target);
     location.hash = `#/recipes/${encodeURIComponent(target)}`;
-  });
+  }, t("working.save"));
   paint(
     h("p", {}, h("a", { href: slug ? `#/recipes/${encodeURIComponent(slug)}` : "#/recipes" }, t("back"))),
     h("h1", {}, slug ? t("edit.title") : t("edit.title_new")),
@@ -854,7 +864,7 @@ async function viewRecipe(view, slug) {
       h("div", {},
         h("section", { class: "card" }, recipeFacts(info)),
         h("div", { class: "actions" },
-          button(t("action.load"), "load", { disabled: busy || !canLoad, on: { click: () => act(() => load(slug)) } }),
+          button(t("action.load"), "load", { disabled: busy || !canLoad, on: { click: () => act(() => load(slug), t("working.load")) } }),
           h("a", { class: "pill", href: `#/recipes/${encodeURIComponent(slug)}/edit` }, t("action.edit")),
           h("a", { class: "pill", href: `#/recipes/new/${encodeURIComponent(slug)}` }, t("action.duplicate")),
           button(t("action.delete"), "trash", { class: "quiet", disabled: busy, on: { click: async () => {
@@ -1048,6 +1058,7 @@ window.addEventListener("hashchange", () => { arrive(); flash = null; last = "";
   if (route().name === "console") refreshGate(); render(); document.getElementById("view").focus(); });
 setInterval(() => { if (route().name === "console") refreshGate(); }, 3000);
 for (const node of document.querySelectorAll("[data-icon]")) node.append(iconSvg(node.dataset.icon));
+document.body.append(workingNode);
 arrive();
 applyLanguage();
 connect();

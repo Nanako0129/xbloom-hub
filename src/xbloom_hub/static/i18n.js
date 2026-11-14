@@ -82,6 +82,8 @@ const MESSAGES = {
     "edit.errors": "hub 沒有收下這份食譜：", "edit.hint": "儲存時由 hub 檢查；數值要是整數（流速到小數一位），各段水量加起來要等於粉量乘粉水比。",
     "pattern.1": "中心", "pattern.2": "螺旋", "pattern.3": "繞圈",
     "cup_type.1": "xPod（15 g）", "cup_type.2": "Omni（5–18 g）", "cup_type.3": "其他（5–25 g）", "cup_type.4": "茶（1–5 g）",
+    "working": "處理中…", "working.load": "正在載入到機器…", "working.start": "正在啟動…", "working.stop": "正在停止…",
+    "working.cancel": "正在取消載入…", "working.save": "正在儲存…",
     "stop.title": "停止這次沖煮", "stop.body": "機器會停止注水並回到首頁，這一杯不會沖完。",
     "delete.title": "刪除「{name}」", "delete.body": "食譜會從食譜庫移除，過去的沖煮紀錄不受影響。",
 
@@ -185,6 +187,8 @@ const MESSAGES = {
     "edit.errors": "The hub did not accept this recipe:", "edit.hint": "The hub checks it on saving: whole numbers (flow to one decimal), and the pours must add up to dose times ratio.",
     "pattern.1": "Centre", "pattern.2": "Spiral", "pattern.3": "Circle",
     "cup_type.1": "xPod (15 g)", "cup_type.2": "Omni (5–18 g)", "cup_type.3": "Other (5–25 g)", "cup_type.4": "Tea (1–5 g)",
+    "working": "Working…", "working.load": "Loading onto the machine…", "working.start": "Starting…", "working.stop": "Stopping…",
+    "working.cancel": "Cancelling the load…", "working.save": "Saving…",
     "stop.title": "Stop this brew", "stop.body": "The machine stops pouring and returns to home. This cup will not be finished.",
     "delete.title": "Delete “{name}”", "delete.body": "The recipe is removed from the library. Past brew records are kept.",
 
