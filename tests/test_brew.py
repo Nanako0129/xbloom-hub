@@ -685,3 +685,27 @@ def test_as_measured_water_in_thousandths_and_the_screen_after_a_brew(tmp_path):
         task.cancel()
 
     asyncio.run(run())
+
+
+def test_the_scale_reset_during_a_brew_is_carried_over(tmp_path):
+    # As measured: 5.61 g in the cup, then 0.0, then on to 16.9 g.
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 40510, "pour_index": 0})
+        for grams in (0.0, 4.53, 5.61, 0.0, 1.54, 16.9):
+            raw({"cmd": 20501, "weight_g": grams})
+        assert machine.snapshot()["weight_g"] == 22.51
+        raw({"cmd": 20501, "weight_g": -180.0})              # the cup is lifted: not a reset
+        raw({"cmd": 20501, "weight_g": 16.9})
+        raw({"cmd": 40512})
+        record = brews.get(brews.list()[0]["id"])
+        assert [g for _, g in record["samples"]["weight"]][-3:] == [22.51, -174.39, 22.51]
+        assert len(record["rezeroed"]) == 1 and record["rezeroed"][0][1] == 5.61
+        raw({"cmd": 20501, "weight_g": 3.0})                 # after the brew: as the machine says
+        assert machine.snapshot()["weight_g"] == 3.0
+        task.cancel()
+
+    asyncio.run(run())

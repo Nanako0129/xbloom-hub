@@ -41,7 +41,10 @@ const DOT_ICONS = {
   list: "0000000 1011111 0000000 1011111 0000000 1011100 0000000",
   curve: "0000000 0000111 0001000 0010000 0100000 1000000 1111111",
   prompt: "0000000 1000000 0100000 0010000 0100000 1000111 0000000",
+  apart: "0000000 0000000 1110111 1010101 1110111 0000000 0000000",
 };
+// The cup the machine shows when a brew is done; the two top rows are steam.
+const CUP = "001010100 010101000 000000000 111111100 100000111 100000101 100000111 010001000 001110000";
 const DOT_ICON_R = 0.4;      // of a 1-unit cell: dots stay apart at 20 px, still read as filled
 
 // Icons for actions, on a 24-unit grid. Strokes unless marked solid.
@@ -407,6 +410,38 @@ function lastBrewCard() {
     chart([{ cls: "water", points: water }, { cls: "coffee", points: weight }], [], LEGEND()));
 }
 
+function cupDots() {
+  const lit = [];
+  CUP.split(" ").forEach((row, y) => [...row].forEach((bit, x) => {
+    if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R, class: y < 2 ? `steam s${y}` : "" }));
+  }));
+  return svg("svg", { viewBox: "0 0 9 9", class: "cup", "aria-hidden": "true" }, lit);
+}
+
+// Just after a brew, as the machine does it: the final numbers, and the cup.
+function viewFinished() {
+  fetchLastBrew();
+  if (!lastBrew) return [h("div", { class: "done" }, cupDots(), h("h1", {}, t("home.finished")))];
+  const last = (points) => (points.length ? points[points.length - 1][1] : null);
+  const water = lastBrew.samples.water, weight = lastBrew.samples.weight;
+  return [
+    h("div", { class: "done" }, cupDots(), h("h1", {}, t("home.finished"))),
+    h("div", { class: "muted" }, recordName(lastBrew)),
+    h("div", { class: "readouts" },
+      readout(clock(lastBrew.duration_s || 0), t("readout.time"), null),
+      readout(whole(last(water)), t("readout.water"), "water"),
+      readout(whole(last(weight)), t("readout.coffee"), "coffee")),
+    h("section", { class: "card done-chart" },
+      chart([{ cls: "water", points: water }, { cls: "coffee", points: weight }], pourStarts(lastBrew), LEGEND())),
+    h("p", {}, h("a", { href: `#/history/${lastBrew.id}` }, t("home.open"))),
+  ];
+}
+
+// What is reached for most, as large as the machine draws its own three.
+function tile(icon, label, attrs) {
+  return h(attrs.href ? "a" : "button", { class: "tile", ...attrs }, h("span", { class: "icon" }, iconSvg(icon)), h("span", {}, label));
+}
+
 function viewHome() {
   if (!state) return [h("p", { class: "muted" }, t("connecting_hub"))];
   const s = state.state;
@@ -421,12 +456,17 @@ function viewHome() {
   if (s === "brewing") return viewBrewing();
   if (s === "armed") return viewArmed();
   if (s === "busy") return [h("h1", {}, t("home.busy")), h("p", { class: "muted" }, t("home.busy_hint"))];
+  if (s === "finished") return viewFinished();
 
   fetchLibrary();
   fetchLastBrew();
   const cards = (library || []).slice(0, 6).map(recipeCard);
   return [
-    h("h1", {}, s === "asleep" ? t("home.asleep") : s === "finished" ? t("home.finished") : t("home.ready")),
+    h("h1", {}, s === "asleep" ? t("home.asleep") : t("home.ready")),
+    h("div", { class: "tiles" },
+      tile("list", t("tab.recipes"), { href: "#/recipes" }),
+      tile("curve", t("tab.history"), { href: "#/history" }),
+      tile("apart", t("action.release"), { disabled: busy, on: { click: () => act(() => api("POST", "/api/link/release")) } })),
     h("div", { class: "cols" },
       h("div", {},
         h("h2", {}, t("home.pick")),

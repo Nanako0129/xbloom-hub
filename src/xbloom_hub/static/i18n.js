@@ -48,7 +48,7 @@ const MESSAGES = {
     "home.released": "連線已讓出", "home.released_hint": "官方 App 現在可以連咖啡機。用完再取回。",
     "home.finished": "沖好了",
     "home.busy": "機器正在使用中", "home.busy_hint": "有人在機器上操作，或正在一個 hub 不認得的畫面。",
-    "home.ready": "可以沖了", "home.asleep": "機器休眠中",
+    "home.ready": "準備好了", "home.asleep": "機器休眠中",
     "home.pick": "選一份食譜", "home.open": "看內容", "home.all_recipes": "全部食譜",
     "recipes.empty": "還沒有食譜。在 Claude Code 裡請它為你的豆子設計一份，存檔後會出現在這裡。",
     "home.last_brew": "上一次沖煮", "card.machine": "咖啡機", "card.plan": "預定的注水",

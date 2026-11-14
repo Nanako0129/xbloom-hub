@@ -45,17 +45,26 @@ after the brew opened):
 - **40513 is not only "abandoned"**: it also arrives when the machine leaves
   the screen after a finished brew. The record is already closed by then, so
   nothing changed, but the name in the code is narrower than the signal.
+- **The machine sets its scale to zero about 5 s into the brew**, with water
+  already in the cup. All three runs show it: the reading fell from 5.61 g
+  to 0, from 4.95 g to 0.55 g and from 5.73 g to 0 between two samples, and
+  went on rising from there, so the records ended at 16.9, 18.5 and 15.9 g
+  for a 25 ml pour. With what was lost added back the cup held 22.5, 22.9
+  and 21.7 g when the records closed; the last grams were still dripping.
+  The hub now carries the weight across such a reset and lists each one in
+  the record (`rezeroed`); the three records were corrected by hand with the
+  same rule. 40522 arrived once, 0.3 s before the reset of the first run;
+  whether it announces the reset is not known, since the other two runs had
+  the reset without it.
 - **The 25 s after a brew** (5 s still at 35, 20 s at 36) showed as "the
-  machine is in use". They are now a state of their own, `finished`.
+  machine is in use". They are now a state of their own, `finished`, and the
+  page shows the final numbers and a cup, as the machine's own display does.
 
 ## Measured, not yet explained
 
 - The water count went from 0.8 ml to 25 ml in 6.2 s: about 3.9 ml/s for a
   pour set to 3.0 ml/s. One short pour is not enough to say the rate is off;
   step 4 measures it on a real recipe.
-- The scale read 16 to 18.5 g in the cup at the end of a 25 ml pour, with a
-  bare dripper. Whether the rest was still on its way down or the count runs
-  ahead of the water is not known.
 - The 40512 came 6 to 8 s after the pour ended (13.3, 15.3 and 15.4 s).
 
 ## Not observed

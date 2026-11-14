@@ -283,7 +283,39 @@ dialog .actions button { flex: 1 1 0; min-width: 0; }
   .log { max-height: 56dvh; }
 }
 
+/* ---- the home tiles ------------------------------------------------------------ */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tile, button.tile { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  gap: 16px; min-height: 0; padding: 20px; flex: none; text-align: left;
+  color: var(--text); background: var(--card); border-radius: var(--r-card); box-shadow: none;
+  font-size: 1.0625rem; font-weight: 600; transition: background var(--press); }
+.tile:hover, button.tile:hover { background: var(--raised); }
+button.tile:active { background: var(--fill-press); }
+.tile .icon, button.tile .icon { width: 48px; height: 48px; color: var(--tint); }
+
+/* ---- a large display: the same two columns, grown to fill it ------------------ */
+@media (min-width: 1800px) {
+  html { font-size: 125%; }
+  #app { grid-template-columns: 340px minmax(0, 1fr); }
+  #view { max-width: 2200px; padding: 56px 72px 72px; }
+  .cols { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 32px; }
+  .grid { grid-template-columns: repeat(3, 1fr); }
+  .readout svg { height: 84px; }
+  .tiles { gap: 16px; }
+  .tile, button.tile { padding: 28px; gap: 22px; }
+  .tile .icon, button.tile .icon { width: 72px; height: 72px; }
+}
+
+/* ---- the cup shown after a brew; its steam is the one thing that moves -------- */
+.done { display: flex; align-items: center; gap: 20px; }
+.done-chart { max-width: 1200px; }
+.cup { width: 64px; height: 64px; flex: none; fill: var(--dot); }
+.cup .steam { animation: steam 1.6s steps(1) infinite; }
+.cup .steam.s1 { animation-delay: -0.8s; }
+@keyframes steam { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+
 @media (prefers-reduced-motion: reduce) {
+  .cup .steam { animation: none; }
   button, a.recipe, #tabs a { transition: none; }
   button:active, a.recipe:active { transform: none; }
 }

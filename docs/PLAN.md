@@ -391,16 +391,18 @@ at all, and the weight route is closed.
 something. With no brew open, one of:
 
 - a pour starting (40510);
-- activity **changing into** 34 from another value (34 is what xbloom-py and
-  the Home Assistant integration give for grinding and brewing). Activity
+- activity **changing into** a brewing value from a value that is not one.
+  The brewing values are 35 (measured with the grinder off,
+  `docs/S3-RESULTS.md`) and 34 (what xbloom-py and the Home Assistant
+  integration give for grinding and brewing; not yet seen here). Activity
   arrives with every status frame, so only the change counts: a machine that
-  goes on reporting 34 after a brew has closed opens nothing until activity
-  has left 34 and come back, or a new 40510 arrives;
+  goes on reporting a brewing value after a brew has closed opens nothing
+  until activity has left those values and come back, or a new 40510 arrives;
 - for 30 seconds after the hub wrote 8002 only: activity changing to any
   value that is not known to be something else (1, 65, 10, 29, 4, 5, 31, 36).
-  Which values this machine shows during a brew is unmeasured, 34 included,
-  and a start the hub sent must not end up brewing with no record and no
-  Stop because the guess was wrong.
+  Only one brew has been measured, with the grinder off, and a start the
+  hub sent must not end up brewing with no record and no Stop because the
+  list was incomplete.
 
 These never open one: activity 1 and 65 (home), 10 (asleep), 29 (after the
 handshake), 4 and 5 (tare), 31 (recipe ready, also seen after a pause), 36,
@@ -422,13 +424,24 @@ start ticket and the "loaded" mark as before, but the recipe (as checked and
 as sent) is held until the machine is home or asleep again; a brew that opens
 in between takes it. A brew that opens with nothing held has `recipe: null`.
 
-**When it closes.** 40512 (finished), 40513 (abandoned), activity 1 or 65
+**When it closes.** 40512 (finished), 40513 (abandoned), activity 36 (the
+screen after a brew, for a 40512 that was missed), activity 1 or 65
 (home), activity 10 (asleep), or the link dropping; a stop the hub sent is
 recorded as the reason when one of those follows it. There is no timer.
 
 **State while a record is open** is `brewing`, whatever the activity value,
 including 31 during a pause. With no record open the states are as in S2, so
-load and cancel are never blocked by a brew that is not happening.
+load and cancel are never blocked by a brew that is not happening, plus
+`finished`: from a 40512 until the machine's activity next changes, and
+while activity is 36. On the machine that is about 25 s. A load waits for
+`idle` or `asleep`.
+
+**Readings are corrected where they enter.** Water arrives in thousandths
+of a millilitre and is divided by 1000. The machine sets its scale to zero
+about 5 s into a brew; a reading that falls by more than 2 g to within
+-0.5 to 1.5 g of zero is taken as that reset and the weight before it is
+carried over, so the record holds the weight in the cup since the brew
+opened. Each reset is listed in the record under `rezeroed`.
 
 Each record is one JSON file under `data/brews/`: when it started, how it
 ended, the recipe as checked and as sent (or null), every weight (20501) and
@@ -500,7 +513,7 @@ the host check of P1-3.
 - Start: refused with a wrong, reused or expired ticket, after a cancel, after
   another load, when not armed, and when the last cradle event is cup-off;
   accepted once otherwise; not present in the MCP tool list.
-- The simulator gains a brew: after a start it reports activity 34, pour
+- The simulator gains a brew: after a start it reports activity 35, pour
   events, rising water and weight, and finished. Tests check the record for a
   hub start, for a stop, for a knob start after a hub load (recipe present),
   and for a knob start with nothing loaded (recipe null). A refused 8002
@@ -509,8 +522,8 @@ the host check of P1-3.
   cancel accepted; an unanswered 8002 after which the simulator brews opens a
   record. After a hub start, an activity value outside the known list opens a
   record; the same value without a hub start does not. An open record
-  followed by activity 10 closes. After 40512, further frames with activity
-  34 and then activity 1 leave exactly one closed record and none open. Tare,
+  followed by activity 10 closes. After 40512, further frames with the
+  brewing activity and then activity 1 leave exactly one closed record and none open. Tare,
   handshake, recipe-ready and finished signals open nothing. After each of
   these a load from idle or asleep is accepted. The file exists while the
   brew is still running, and no record, snapshot or stream message contains

@@ -30,9 +30,17 @@ _FINISHED = 36
 # The machine reports water in thousandths of a millilitre (25 ml arrived as
 # 25000.0; the official app divides by 1000 as well).
 WATER_UNITS_PER_ML = 1000
-# Values known to be something other than a brew: home, asleep, after the
-# handshake, tare, recipe ready, finished.
-_NOT_A_BREW = {1, 65, 10, 29, 4, 5, 31, 36}
+# Values known to be something other than a brew: home, asleep, recipe ready,
+# finished, and 29 (after the handshake), 4 and 5 (tare).
+_NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
+# The machine sets its scale back to zero about 5 s into a brew, with water
+# already in the cup (docs/S3-RESULTS.md: 5.6 g, 4.95 g and 5.7 g were lost
+# that way). A reading that falls by more than REZERO_DROP_G to within
+# REZERO_BAND_G of zero is taken as such a reset, and what was on the scale
+# is carried over. A lifted cup reads far below zero, so it is not mistaken
+# for one.
+REZERO_DROP_G = 2.0
+REZERO_BAND_G = (-0.5, 1.5)
 # After the hub sends a start, any other activity value counts as a brew for
 # this long: a start the hub sent must not brew with no record and no Stop
 # because the guess above was wrong.
@@ -164,8 +172,12 @@ class Machine:
             if key in decoded:
                 self._info[key] = decoded[key]
         cmd = decoded.get("cmd")
-        if "water_ml" in decoded:
+        if isinstance(decoded.get("water_ml"), (int, float)):
             decoded = {**decoded, "water_ml": round(decoded["water_ml"] / WATER_UNITS_PER_ML, 1)}
+        elif "water_ml" in decoded:
+            decoded = {k: v for k, v in decoded.items() if k != "water_ml"}
+        if "weight_g" in decoded and self._brew is not None:
+            decoded = {**decoded, "weight_g": self._carried(decoded["weight_g"])}
         if "weight_g" in decoded:
             self._weight = decoded["weight_g"]
         if "water_ml" in decoded:
@@ -179,8 +191,8 @@ class Machine:
         if "activity" in decoded:
             was_armed = self.state == "armed"
             self._activity = decoded["activity"]
-            if self._activity not in _BREWING:
-                self._finished = False
+            if self._activity != previous:
+                self._finished = False      # the machine has moved on, wherever to
             if was_armed and self.state != "armed":
                 # The machine left the recipe screen: the load is over and its
                 # start ticket is void (invariant 3). The recipe itself is
@@ -195,7 +207,7 @@ class Machine:
                            and time.monotonic() - self._started_at < START_WINDOW_S)
             if cmd == CMD_POUR_START:
                 self._open_brew("pour_started")
-            elif changed and activity in _BREWING:
+            elif changed and activity in _BREWING and previous not in _BREWING:
                 self._open_brew(f"activity_{activity}")
             elif changed and after_start and activity not in _NOT_A_BREW:
                 self._open_brew(f"activity_{activity}_after_start")
@@ -206,6 +218,8 @@ class Machine:
                 self._close_brew("finished")
             elif cmd == CMD_ABANDONED:
                 self._close_brew("abandoned")
+            elif "activity" in decoded and activity == _FINISHED:
+                self._close_brew("finished")        # the 40512 was missed
             elif "activity" in decoded and activity in _HOME:
                 self._close_brew("stopped" if self._brew["stop_sent"] else "home")
             elif "activity" in decoded and activity == _ASLEEP:
@@ -247,6 +261,8 @@ class Machine:
             "slug": held.get("slug"), "recipe": held.get("recipe"),
             "as_sent": held.get("as_sent"),
             "samples": {"weight": [], "water": []}, "events": [],
+            # [seconds, grams carried over] for each scale reset seen.
+            "rezeroed": [], "_raw_weight": None, "_carry": 0.0,
             "_t0": time.monotonic(),
         }
         # The last water reading belongs to whatever came before this brew.
@@ -254,6 +270,19 @@ class Machine:
         self._water = None
         self._save_brew()
         log.info("brew %s opened (%s)", self._brew["id"], opened_by)
+
+    def _carried(self, raw: float) -> float:
+        """The weight in the cup since the brew opened, across the machine's
+        own reset of its scale."""
+        brew = self._brew
+        last = brew["_raw_weight"]
+        if (last is not None and last - raw > REZERO_DROP_G
+                and REZERO_BAND_G[0] <= raw <= REZERO_BAND_G[1]):
+            brew["_carry"] += last
+            brew["rezeroed"].append(
+                [round(time.monotonic() - brew["_t0"], 2), round(last, 2)])
+        brew["_raw_weight"] = raw
+        return round(raw + brew["_carry"], 2)
 
     def _record(self, decoded: dict) -> None:
         brew = self._brew
