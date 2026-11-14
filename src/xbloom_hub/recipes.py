@@ -273,6 +273,8 @@ class RecipeStore:
         for entry in self.list():
             try:
                 recipe = self.get(entry["slug"])
+                if recipe is None:              # removed since it was listed
+                    continue
                 timeline = plan(recipe)
                 out.append({
                     **entry, "valid": True, "dose_g": recipe["dose_g"], "ratio": recipe["ratio"],
@@ -282,7 +284,10 @@ class RecipeStore:
                               for p in timeline["pours"]],
                     "bean": (recipe.get("meta") or {}).get("bean") or None,
                 })
-            except RecipeInvalid:
+            except (RecipeInvalid, BadSlug):
+                # A file that fails the check, or one whose name is not a
+                # slug (hand-made files are expected): shown, not usable, and
+                # never a reason for the whole library to fail.
                 out.append({**entry, "valid": False})
         return out
 

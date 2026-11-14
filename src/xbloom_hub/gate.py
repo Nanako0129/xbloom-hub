@@ -8,6 +8,7 @@ writes without going through ``write_confirmed``.
 """
 from __future__ import annotations
 
+import asyncio
 import collections
 import contextlib
 import contextvars
@@ -30,27 +31,36 @@ ALLOWED = LOAD | CANCEL | STOP
 # deliberately in no list.
 START = frozenset({8002})
 
-# The permit is a one-element list holding how many 8002 writes are left.
-_start_permit: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
+class _Permit:
+    """Who may write 8002 right now: one task, until its block ends."""
+
+    def __init__(self) -> None:
+        self.owner = asyncio.current_task()
+        self.open = True
+
+
+_start_permit: contextvars.ContextVar[_Permit | None] = contextvars.ContextVar(
     "xbloom_start_permit", default=None)
 
 
 @contextlib.contextmanager
 def start_permit():
-    """Let exactly one 8002 through, from inside this block.
+    """Let 8002 through from the task that opens this block, while it is open.
 
-    A context variable keeps the permit out of tasks that already exist. A
-    task created inside the block does inherit the variable, and keeps it
-    after the block ends, so the permit is also a counter that the first 8002
-    uses up and that the end of the block zeroes: an inherited copy points at
-    the same spent counter.
+    A context variable keeps the permit out of tasks that already exist, but
+    a task created inside the block inherits the variable and keeps it after
+    the block ends. So the permit also names its owner and is closed when the
+    block ends: an inherited copy belongs to another task, and a kept one is
+    shut. The owner may write 8002 more than once inside the block, which is
+    what the library's own re-send to a sleeping machine needs; the firmware
+    refuses a duplicate as busy.
     """
-    permit = [1]
+    permit = _Permit()
     token = _start_permit.set(permit)
     try:
         yield
     finally:
-        permit[0] = 0
+        permit.open = False
         _start_permit.reset(token)
 
 _FFE1 = FFE1_UUID.lower()
@@ -71,11 +81,10 @@ def check(char_specifier: object, data: object) -> int:
     except (TypeError, ValueError):
         code = None
     permit = _start_permit.get()
-    starting = code in START and permit is not None and permit[0] > 0
+    starting = (code in START and permit is not None and permit.open
+                and permit.owner is not None and asyncio.current_task() is permit.owner)
     if uuid != _FFE1 or not (code in ALLOWED or starting):
         raise GateRefused(f"write refused: characteristic={uuid} code={code}")
-    if starting:
-        permit[0] -= 1
     return code
 
 

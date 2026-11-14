@@ -487,6 +487,18 @@ def test_library_lists_what_a_card_shows_and_survives_a_bad_file(client, tmp_pat
     assert [p["volume_ml"] for p in library["test"]["pours"]] == [60, 40]
     assert library["test"]["ratio"] == "1:20" and library["test"]["pour_end_s"] > 0
     assert library["broken"] == {"slug": "broken", "name": "Broken", "valid": False}
+    # A hand-made file whose name is not a slug, a list, bytes, a directory:
+    # each is shown as unusable or skipped, and the library still answers.
+    recipes = tmp_path / "recipes"
+    (recipes / "Bad Name.yaml").write_text((recipes / "test.yaml").read_text())
+    (recipes / "list.yaml").write_text("- 1\n")
+    (recipes / "bytes.yaml").write_bytes(b"\xff\xfe")
+    (recipes / "dir.yaml").mkdir()
+    again = client.get("/api/library")
+    assert again.status_code == 200
+    by_slug = {r["slug"]: r for r in again.json()}
+    assert by_slug["Bad Name"]["valid"] is False and by_slug["test"]["valid"] is True
+    assert by_slug["list"]["valid"] is False and by_slug["bytes"]["valid"] is False
 
 
 # ---- from the S3 pre-push review and verification -------------------------------
@@ -498,21 +510,30 @@ def test_a_task_created_inside_the_permit_cannot_start_later():
             await asyncio.sleep(0.05)                        # after the block has ended
             await client.write_gatt_char(FFE1_UUID, frame(8002))
 
+        async def at_once():                                 # during the block, before the owner writes
+            await client.write_gatt_char(FFE1_UUID, frame(8002))
+
         with gate.start_permit():
             inherited = asyncio.create_task(later())         # copies the context, permit and all
+            early = asyncio.create_task(at_once())
+            with pytest.raises(gate.GateRefused):            # not its permit, even while open
+                await early
             await client.write_gatt_char(FFE1_UUID, frame(8002))
-            with pytest.raises(gate.GateRefused):            # one write, not two
-                await client.write_gatt_char(FFE1_UUID, frame(8002))
+            await client.write_gatt_char(FFE1_UUID, frame(8002))     # the owner's own re-send
         with pytest.raises(gate.GateRefused):
             await inherited
+        with pytest.raises(gate.GateRefused):                # the owner too, once the block has ended
+            await client.write_gatt_char(FFE1_UUID, frame(8002))
 
-        with gate.start_permit():
-            unused = asyncio.create_task(later())            # the permit is never used here
-        with pytest.raises(gate.GateRefused):                # ... and ends with the block anyway
-            await unused
+        with pytest.raises(RuntimeError):
+            with gate.start_permit():
+                kept = asyncio.create_task(later())
+                raise RuntimeError("inside the block")
+        with pytest.raises(gate.GateRefused):                # an exception closes it as well
+            await kept
 
     asyncio.run(run())
-    assert client.sent == [8002]
+    assert client.sent == [8002, 8002]
 
 
 def test_a_brew_that_opens_while_still_at_31_voids_the_ticket(tmp_path):

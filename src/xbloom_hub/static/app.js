@@ -261,7 +261,8 @@ function fetchLibrary() {
 
 // Once each time the machine comes to rest, so a brew that just ended shows up.
 function fetchLastBrew() {
-  const mark = state.state + (state.brew ? state.brew.id : "");
+  // live.id is the last brew this page watched; a new one means a new record.
+  const mark = `rest:${live.id || ""}`;
   if (lastBrewAsked === mark) return;
   lastBrewAsked = mark;
   api("GET", "/api/brews").then((brews) => (brews.length ? api("GET", `/api/brews/${brews[0].id}`) : null))
@@ -282,7 +283,7 @@ async function backfill(id) {
   const first = (points) => (points.length ? points[0][0] : Infinity);
   live.water = record.samples.water.filter((p) => p[0] < first(live.water)).concat(live.water);
   live.weight = record.samples.weight.filter((p) => p[0] < first(live.weight)).concat(live.weight);
-  const starts = record.events.filter((e) => e[1].cmd === 40510).map((e) => e[0]);
+  const starts = pourStarts(record);
   live.marks = starts.filter((time) => time < first(live.marks.map((m) => [m]))).concat(live.marks);
   render();
 }
@@ -371,7 +372,7 @@ function recipeCard(r) {
       x += width;
     }
   }
-  return h("a", { class: "recipe", href: `#/recipes/${encodeURIComponent(r.slug)}` },
+  return h(r.valid ? "a" : "div", { class: "recipe", href: r.valid ? `#/recipes/${encodeURIComponent(r.slug)}` : null },
     h("div", { class: "name" }, r.name || r.slug),
     h("div", { class: "line num" }, r.valid
       ? t("library.line", { dose: r.dose_g, ratio: r.ratio, total: r.total_ml, time: clock(r.pour_end_s) }) : t("library.invalid")),
@@ -696,7 +697,7 @@ function viewConsole() {
           cupLine(),
           h("dt", {}, t("console.token")), h("dd", {}, token() ? t("console.token_yes") : t("console.token_no")),
           h("dt", {}, h("label", { for: "language" }, t("console.language"))),
-          h("dd", {}, h("select", { id: "language", on: { change: (event) => { setLanguage(event.target.value); applyLanguage(); } } },
+          h("dd", {}, h("select", { id: "language", on: { change: (event) => { setLanguage(event.target.value); event.target.blur(); applyLanguage(); } } },
             Object.entries(LANGUAGE_NAMES).map(([code, name]) => h("option", { value: code, selected: code === LANGUAGE }, name)))))),
         h("section", { class: "card" }, h("h2", {}, t("console.share")), h("p", { class: "muted" }, t("console.share_hint")),
           h("div", { class: "actions" }, released

@@ -492,8 +492,8 @@ class Machine:
             self._started_at = time.monotonic()
             try:
                 with gate.start_permit():
-                    # One write: the permit is spent by it, and send_confirmed
-                    # re-sends only while the machine is asleep.
+                    # Only this task may write 8002, and only inside this
+                    # block. send_confirmed re-sends only to a sleeping machine.
                     answered = await self._listener.send_confirmed(
                         "execute", _build_frame(CMD_EXECUTE))
             except CommandRefused:
