@@ -113,6 +113,7 @@ Each ends with an observed check, on the machine unless stated.
 | S1 | Hub core: session manager with the write gate, recipe store, REST + SSE, simulator backend, tests | load on simulator and machine |
 | S2 | MCP tools and a Claude Code skill from the ported brewing reference | a recipe written in Claude Code appears on the machine |
 | S3 | Dashboard and console page: live curve, event log, manual load / start / cancel | user watches one real brew in a browser |
+| S3b | Recipes from xBloom's community hub and share links, no account | an official recipe saved from the page and loaded on the machine |
 | S4 | Dockerfile and compose, deployed to a home server on the LAN rather than the development Mac | one brew driven through the container |
 | S5 | Home Assistant: state published over MQTT (method reconfirmed with the user then) | entities change during a brew |
 | S6 | Optional: xBloom account sync, brew rating fed back into recipe revision | decided later |
@@ -580,6 +581,97 @@ Home Assistant; Docker; anything beyond the one shared token.
 
 **Rollback.** New files, and additive changes to `gate.py`, `machine.py`,
 `app.py` and `sim.py`. Without a start permit the gate behaves as in S2.
+
+## S3b — recipes from xBloom's community hub and share links
+
+Asked for by the owner on 2026-11-14: "recipes should connect to xBloom's
+web page, and more of the official presets". Not in the original slice list;
+it sits between S3 and S4 because it is a feature of the hub, not of its
+packaging.
+
+**Outcome.** From the dashboard, and from Claude Code, a person can search
+xBloom's community recipe hub (the library behind `collective.xbloom.com`,
+which includes the recipes xBloom itself publishes, marked official), look at
+one, and save it into the hub's own library as an ordinary recipe. A share
+link pasted into the page does the same for one recipe. Nothing is signed in
+to, and nothing is ever sent to xBloom except search terms and recipe ids.
+
+**What exists already.** `xbloom-py` 0.5.0 has both clients, each exercised
+live by its author without credentials: `XBloomCommunityClient`
+(`criteria()`, `search()`, `detail()`, host `collective-api.xbloom.com`) and
+`XBloomClient` (`share_id_from_url()`, `get_recipe_by_share_id()`, host
+`client-api.xbloom.com`). A hub recipe's own pours lack flow rate and
+agitation; its `share_url` resolves through the second client to the complete
+recipe. Both take an `aiohttp.ClientSession`, which this project does not
+install yet.
+
+**Scope.**
+
+- A new dependency, `aiohttp`, pinned to an exact version, used only by the
+  new module.
+- `src/xbloom_hub/community.py`: one module that owns one `ClientSession`
+  (total timeout 10 s, no redirects followed, no proxy from the environment,
+  response size capped) and offers `search`, `detail` and `fetch_share`.
+- Converting a fetched recipe to the hub's one shape, then `recipes.checked()`
+  as for any other recipe. Not `normalize_recipe()`: a recipe that does not
+  pass as it is, is shown as not importable with the reason, never repaired.
+  Free text (name, author, description, notes) goes through `clean_text()`
+  and the existing length caps. `meta.source` is the share link.
+- REST, all behind the same guard as the rest: `GET /api/community/criteria`,
+  `GET /api/community/search`, `GET /api/community/{id}` (the recipe as it
+  would be saved, plus whether it passes), `POST /api/community/import`
+  with `{id, slug}` or `{share_url, slug}` (token required; refuses a slug in
+  use).
+- MCP: `search_community_recipes`, `get_community_recipe`,
+  `import_community_recipe`. Results are labelled as text from strangers, as
+  P2-6 requires for recipe text.
+- The page: a "Community" section under Recipes with search, the filters the
+  hub's criteria list, a result grid, a detail view with the plan chart, and
+  "Save to my recipes" asking for an id. A field for a share link.
+
+**Non-goals.** Signing in to an xBloom account, the account's own recipes,
+uploading or liking, the app's Trending and For You lists (they live on the
+account API), images (never fetched by the hub and never shown: P3/P4 above),
+tea recipes, bypass water and pods, caching search results on disk.
+
+**Security dispositions for this slice.**
+
+- The hub makes requests to exactly two fixed HTTPS hosts. No URL from a
+  caller or from a response is ever fetched: a pasted share link is parsed
+  for its `id` parameter only, and must be on `share-h5.xbloom.com`; a
+  recipe's `share_url` from the community hub is parsed the same way.
+- Search terms leave the home network. The docs say so. No token, no serial
+  number, no machine state is sent.
+- Everything received is untrusted text: inserted with `textContent` on the
+  page, cleaned and capped before it is stored, labelled in MCP results.
+- An import never loads the machine. It writes a recipe file; loading it is
+  the same deliberate step as for any recipe.
+- The calls are slow and can fail: a failure is a `502` with a named error,
+  the hub's own work (the BLE session, brew records) is not blocked by one,
+  and at most a small number run at once.
+
+**Acceptance.**
+
+- Tests with a fake session, no network: search and detail map to the
+  documented shape; a recipe that fails `checked()` is reported, not saved;
+  a share link on another host, or with no id, is refused before any
+  request; an import refuses a slug in use and one that is not a slug; a
+  timeout and a non-200 become `502`; hostile text (markup, control
+  characters, a 10 000 character name) is cleaned or refused.
+- Observed against the live service, by hand, once: a search returns
+  recipes; one official recipe is saved and then opens in the hub with a
+  plan; a share link imports. This is reading a public service the library's
+  author documented; it is rate-limited to a handful of calls.
+- Observed in a browser: search, open, save, the saved recipe in the list.
+- On the machine (owner present): an imported recipe is loaded and shows on
+  the display. Not started from this slice.
+
+**Rollback.** One new module, three routes groups, three MCP tools, one page
+section, one dependency. Removing them leaves S3 as it is.
+
+**Stops.** The live service answers differently from what the library
+expects, or asks for a login: stop, record what it answered, and put it to
+the owner; do not imitate another client or add credentials.
 
 ## S0 — prove the radio path
 
