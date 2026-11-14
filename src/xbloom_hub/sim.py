@@ -44,8 +44,11 @@ class SimListener:
     client_class = gate.make_gated(_SimClient)
     brew_seconds = float(os.environ.get("XBLOOM_SIM_BREW_S", "45"))
     start_answer = "accept"         # accept | refuse | lost (taken, no echo) | ignore
-    brewing_activity = 34
+    brewing_activity = 35
     linger_at_brewing = 0           # status frames still saying "brewing" after the end
+    # How long the screen after a brew stays. The machine: about 5 s still at
+    # the brewing value, then 20 s at 36. Short by default so tests are quick.
+    done_seconds = float(os.environ.get("XBLOOM_SIM_DONE_S", "0.05"))
 
     def __init__(self, resolver, mode_name, notification_filter, on_event, on_lifecycle,
                  idle_timeout_s=300.0, on_raw=None) -> None:
@@ -73,7 +76,7 @@ class SimListener:
         while True:
             await asyncio.sleep(0.2)
             self._on_raw({"cmd": 20501, "weight_g": round(self._weight, 1)})
-            self._on_raw({"cmd": 40523, "water_ml": round(self._water, 1)})
+            self._on_raw({"cmd": 40523, "water_ml": round(self._water * 1000, 1)})
 
     async def stop(self) -> None:
         for task in (self._ticker, self._brewing):
@@ -134,13 +137,15 @@ class SimListener:
                 self._water += volume / steps
                 self._weight = max(0.0, self._water * 0.86 - 12)     # the bed holds some back
             await asyncio.sleep(float(pour.get("pause_s", 0)) * scale)
-        self._on_raw({"cmd": 40523, "water_ml": round(self._water, 1)})
+        self._on_raw({"cmd": 40523, "water_ml": round(self._water * 1000, 1)})
         self._on_raw({"cmd": 20501, "weight_g": round(self._weight, 1)})
         self._on_raw({"cmd": 40511})
         self._on_raw({"cmd": 40512})
         for _ in range(self.linger_at_brewing):
             self._on_raw({"cmd": 8023, "activity": self.brewing_activity})
+        await asyncio.sleep(self.done_seconds / 5)
         self._on_raw({"cmd": 8023, "activity": 36})
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(self.done_seconds)
+        self._on_raw({"cmd": 40513})                 # also sent on leaving this screen
         self._recipe = None
         self._on_raw({"cmd": 8023, "activity": 1})

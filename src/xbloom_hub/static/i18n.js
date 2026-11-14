@@ -12,7 +12,7 @@ const MESSAGES = {
     "back": "返回",
 
     "state.offline": "離線", "state.idle": "待機", "state.asleep": "休眠", "state.armed": "已載入",
-    "state.brewing": "沖煮中", "state.busy": "忙碌", "state.released": "已讓出連線",
+    "state.brewing": "沖煮中", "state.finished": "完成", "state.busy": "忙碌", "state.released": "已讓出連線",
     "status.connecting": "連線中", "status.no_hub": "連不到 hub",
 
     "reason.radio_starting": "正在連接藍牙橋接", "reason.machine_not_found": "找不到咖啡機",
@@ -46,8 +46,9 @@ const MESSAGES = {
 
     "home.offline": "咖啡機離線", "home.offline_retry": "hub 正在重試連線。", "home.to_console": "到主控台看連線狀態",
     "home.released": "連線已讓出", "home.released_hint": "官方 App 現在可以連咖啡機。用完再取回。",
+    "home.finished": "沖好了",
     "home.busy": "機器正在使用中", "home.busy_hint": "有人在機器上操作，或正在一個 hub 不認得的畫面。",
-    "home.ready": "可以沖了", "home.asleep": "機器休眠中",
+    "home.ready": "準備好了", "home.asleep": "機器休眠中",
     "home.pick": "選一份食譜", "home.open": "看內容", "home.all_recipes": "全部食譜",
     "recipes.empty": "還沒有食譜。在 Claude Code 裡請它為你的豆子設計一份，存檔後會出現在這裡。",
     "home.last_brew": "上一次沖煮", "card.machine": "咖啡機", "card.plan": "預定的注水",
@@ -67,6 +68,7 @@ const MESSAGES = {
     "chart.label": "水量與咖啡量隨時間的變化", "chart.water": "水", "chart.coffee": "咖啡", "chart.plan": "食譜預定的水量",
 
     "start.title": "開始沖「{name}」", "start.body": "機器會開始磨豆並注入熱水。確認豆子、濾紙、水和杯子都準備好了。",
+    "release.title": "讓出咖啡機的連線", "release.body": "hub 會放開藍牙連線，官方 App 就能連上。用完再回來按「取回連線」。",
     "stop.title": "停止這次沖煮", "stop.body": "機器會停止注水並回到首頁，這一杯不會沖完。",
     "delete.title": "刪除「{name}」", "delete.body": "食譜會從食譜庫移除，過去的沖煮紀錄不受影響。",
 
@@ -100,7 +102,7 @@ const MESSAGES = {
     "back": "Back",
 
     "state.offline": "Offline", "state.idle": "Ready", "state.asleep": "Asleep", "state.armed": "Loaded",
-    "state.brewing": "Brewing", "state.busy": "Busy", "state.released": "Link released",
+    "state.brewing": "Brewing", "state.finished": "Done", "state.busy": "Busy", "state.released": "Link released",
     "status.connecting": "Connecting", "status.no_hub": "Cannot reach the hub",
 
     "reason.radio_starting": "Connecting to the Bluetooth bridge", "reason.machine_not_found": "Machine not found",
@@ -134,6 +136,7 @@ const MESSAGES = {
 
     "home.offline": "The machine is offline", "home.offline_retry": "The hub is retrying.", "home.to_console": "See the link in the console",
     "home.released": "Link released", "home.released_hint": "The official app can connect now. Take the link back when done.",
+    "home.finished": "Brew finished",
     "home.busy": "The machine is in use", "home.busy_hint": "Someone is using it, or it is on a screen the hub does not know.",
     "home.ready": "Ready to brew", "home.asleep": "The machine is asleep",
     "home.pick": "Choose a recipe", "home.open": "Open", "home.all_recipes": "All recipes",
@@ -155,6 +158,7 @@ const MESSAGES = {
     "chart.label": "Water and coffee over time", "chart.water": "Water", "chart.coffee": "Coffee", "chart.plan": "Planned water",
 
     "start.title": "Start “{name}”", "start.body": "The machine will grind and pour hot water. Check that beans, filter, water and cup are ready.",
+    "release.title": "Release the machine's link", "release.body": "The hub lets go of the Bluetooth link so the official app can connect. Take it back here when you are done.",
     "stop.title": "Stop this brew", "stop.body": "The machine stops pouring and returns to home. This cup will not be finished.",
     "delete.title": "Delete “{name}”", "delete.body": "The recipe is removed from the library. Past brew records are kept.",
 

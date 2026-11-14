@@ -73,11 +73,13 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
             return _failure(err)
 
     @server.tool(description="The machine's current state: offline, idle, asleep, armed "
-                             "(a recipe is loaded and waiting), brewing, busy or released. "
+                             "(a recipe is loaded and waiting), brewing, finished (the screen after "
+                             "a brew; a load has to wait for idle), busy or released. "
                              "weight_g is "
                              "the scale's reading after its last tare and is 0 with a cup on "
                              "it once a recipe has been loaded; it does not show whether a "
-                             "cup is present.")
+                             "cup is present. While brewing it is the weight in the cup "
+                             "since the brew began; the brew's record keeps that figure.")
     async def machine_state() -> dict:
         return {"ok": True, **machine.snapshot()}
 

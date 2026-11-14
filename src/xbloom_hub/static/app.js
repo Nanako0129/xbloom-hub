@@ -20,7 +20,7 @@ function h(tag, attrs, ...children) {
     else if (key === "disabled" || key === "checked" || key === "selected") node[key] = Boolean(value);
     else node.setAttribute(key, String(value));
   }
-  for (const child of children.flat()) {
+  for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
@@ -30,7 +30,7 @@ function h(tag, attrs, ...children) {
 function svg(tag, attrs, ...children) {
   const node = document.createElementNS(SVG, tag);
   for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, String(value));
-  for (const child of children.flat()) if (child) node.append(child);
+  for (const child of children.flat(Infinity)) if (child) node.append(child);
   return node;
 }
 
@@ -41,6 +41,9 @@ const DOT_ICONS = {
   list: "0000000 1011111 0000000 1011111 0000000 1011100 0000000",
   curve: "0000000 0000111 0001000 0010000 0100000 1000000 1111111",
   prompt: "0000000 1000000 0100000 0010000 0100000 1000111 0000000",
+  apart: "0000000 0000000 1110111 1010101 1110111 0000000 0000000",
+  // A cup, for a finished brew; nine by nine, and the two top rows are steam.
+  cup: "001010100 010101000 000000000 111111100 100000111 100000101 100000111 010001000 001110000",
 };
 const DOT_ICON_R = 0.4;      // of a 1-unit cell: dots stay apart at 20 px, still read as filled
 
@@ -58,11 +61,11 @@ const ICONS = {
 
 function iconSvg(name) {
   if (DOT_ICONS[name]) {
-    const lit = [];
-    DOT_ICONS[name].split(" ").forEach((row, y) => [...row].forEach((bit, x) => {
-      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R }));
+    const lit = [], rows = DOT_ICONS[name].split(" ");
+    rows.forEach((row, y) => [...row].forEach((bit, x) => {
+      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R, class: name === "cup" && y < 2 ? `steam s${y}` : "" }));
     }));
-    return svg("svg", { viewBox: "0 0 7 7", class: "matrix", "aria-hidden": "true" }, lit);
+    return svg("svg", { viewBox: `0 0 ${rows[0].length} ${rows.length}`, class: `matrix ${name}`, "aria-hidden": "true" }, lit);
   }
   return svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" }, (ICONS[name] || []).map((part) =>
     Array.isArray(part) ? svg("path", { d: part[0], class: "solid" }) : svg("path", { d: part })));
@@ -166,7 +169,8 @@ function chart(series, marks, legend) {
   const xMax = Math.max(30, ...all.map((p) => p[0]), ...(marks || []));
   const yMax = Math.max(50, ...all.map((p) => p[1]));
   const xStep = xMax > 240 ? 120 : xMax > 90 ? 60 : 30;
-  const yStep = yMax > 300 ? 200 : 100;
+  // At most five steps, whatever arrives: a wrong unit must not draw a thousand labels.
+  const yStep = [10, 20, 50, 100, 200, 500].find((step) => yMax / step <= 5) || Math.ceil(yMax / 5);
   const xTop = Math.ceil(xMax / xStep) * xStep, yTop = Math.ceil(yMax / yStep) * yStep;
   const px = (time) => L + (time / xTop) * (W - L - R), py = (v) => H - B - (v / yTop) * (H - T - B);
   const parts = [];
@@ -406,6 +410,32 @@ function lastBrewCard() {
     chart([{ cls: "water", points: water }, { cls: "coffee", points: weight }], [], LEGEND()));
 }
 
+// Just after a brew, as the machine does it: the final numbers, and the cup.
+function viewFinished() {
+  fetchLastBrew();
+  const title = h("div", { class: "done" }, iconSvg("cup"), h("h1", {}, t("home.finished")));
+  // Until the record of the brew this page just watched has arrived, show no numbers.
+  if (!lastBrew || (live.id && lastBrew.id !== live.id)) return [title];
+  const last = (points) => (points.length ? points[points.length - 1][1] : null);
+  const water = lastBrew.samples.water, weight = lastBrew.samples.weight;
+  return [
+    title,
+    h("div", { class: "muted" }, recordName(lastBrew)),
+    h("div", { class: "readouts" },
+      readout(clock(lastBrew.duration_s || 0), t("readout.time"), null),
+      readout(whole(last(water)), t("readout.water"), "water"),
+      readout(whole(last(weight)), t("readout.coffee"), "coffee")),
+    h("section", { class: "card done-chart" },
+      chart([{ cls: "water", points: water }, { cls: "coffee", points: weight }], pourStarts(lastBrew), LEGEND())),
+    h("p", {}, h("a", { href: `#/history/${lastBrew.id}` }, t("home.open"))),
+  ];
+}
+
+// What is reached for most, as large as the machine draws its own three.
+function tile(icon, label, attrs) {
+  return h(attrs.href ? "a" : "button", { class: "tile", ...attrs }, h("span", { class: "icon" }, iconSvg(icon)), h("span", {}, label));
+}
+
 function viewHome() {
   if (!state) return [h("p", { class: "muted" }, t("connecting_hub"))];
   const s = state.state;
@@ -420,12 +450,17 @@ function viewHome() {
   if (s === "brewing") return viewBrewing();
   if (s === "armed") return viewArmed();
   if (s === "busy") return [h("h1", {}, t("home.busy")), h("p", { class: "muted" }, t("home.busy_hint"))];
+  if (s === "finished") return viewFinished();
 
   fetchLibrary();
   fetchLastBrew();
   const cards = (library || []).slice(0, 6).map(recipeCard);
   return [
     h("h1", {}, s === "asleep" ? t("home.asleep") : t("home.ready")),
+    h("div", { class: "tiles" },
+      tile("list", t("tab.recipes"), { href: "#/recipes" }),
+      tile("curve", t("tab.history"), { href: "#/history" }),
+      tile("apart", t("action.release"), { disabled: busy, on: { click: confirmRelease } })),
     h("div", { class: "cols" },
       h("div", {},
         h("h2", {}, t("home.pick")),
@@ -541,6 +576,11 @@ async function confirmStart(info) {
 
 async function confirmStop() {
   if (await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) act(() => api("POST", "/api/machine/stop"));
+}
+
+// On the home screen this sits beside two links, so it asks first.
+async function confirmRelease() {
+  if (await ask(t("release.title"), [h("p", {}, t("release.body"))], t("action.release"), false)) act(() => api("POST", "/api/link/release"));
 }
 
 function ask(title, body, yes, danger) {

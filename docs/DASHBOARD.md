@@ -25,6 +25,9 @@ XBLOOM_RADIO=sim XBLOOM_HUB_TOKEN_FILE=secrets/hub_token uv run xbloom-hub
 ```
 
 `XBLOOM_SIM_BREW_S` sets how long a simulated brew takes (default 45 s).
+`XBLOOM_SIM_DONE_S` sets how long the simulator stays on the screen after a
+brew (default 0.05 s, which is too short to see; the machine stays about
+20 s).
 
 ## From another device on the network
 
