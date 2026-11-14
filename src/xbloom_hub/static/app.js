@@ -455,7 +455,7 @@ function recentCard() {
     h("ul", { class: "list compact" }, recent.slice(0, 5).map((b) => h("li", {},
       h("a", { href: `#/history/${b.id}` },
         h("span", { class: "title" }, b.recipe_name || t("brew.at_machine")),
-        h("span", { class: "sub num" }, [when(b.started_at), `${b.water_ml === null ? "-" : Math.round(b.water_ml)} ml`, endingText(b.reason)].join("   ")))))));
+        h("span", { class: "sub num" }, [when(b.started_at), `${b.water_ml == null ? "-" : Math.round(b.water_ml)} ml`, endingText(b.reason)].join("   ")))))));
 }
 
 // What is reached for most, as large as the machine draws its own three.

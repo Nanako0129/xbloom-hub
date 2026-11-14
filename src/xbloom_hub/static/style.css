@@ -300,7 +300,7 @@ button.small { min-height: 38px; padding: 0 14px; font-size: 0.875rem; flex: non
     grid-template-areas: "now past" "pick past"; grid-template-rows: auto 1fr; }
   .home > :not(:first-child) { margin-top: 0; }
   .home-now { grid-area: now; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
-  .home-now > :not(:first-child) { margin-top: 0; }
+  .home .home-now > :not(:first-child) { margin-top: 0; }
   .home-now .tiles { grid-template-columns: 1fr; }
   .home-pick { grid-area: pick; }
   .home-past { grid-area: past; }
