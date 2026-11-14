@@ -45,7 +45,7 @@
   function tick(now: number) {
     replayAt = Math.min(span, (replayAt ?? 0) + ((now - lastFrame) / 1000) * REPLAY_SPEED);
     lastFrame = now;
-    if (replayAt >= span) { playing = false; return; }
+    if (replayAt >= span) { playing = false; replayAt = null; return; }    // the end: the whole brew again
     frame = requestAnimationFrame(tick);
   }
   function play() {
@@ -82,7 +82,7 @@
               onclick={() => (playing ? pause() : play())}><span class="icon"><Icon name={playing ? "pause" : "play"} /></span></button>
           {/if}
           <input type="range" class="scrub" min="0" max={span} step={SCRUB_STEP} value={replayAt ?? span}
-            aria-label={t("replay.scrub")} oninput={(event) => { replayAt = Number(event.currentTarget.value); }} />
+            aria-label={t("replay.scrub")} oninput={(event) => { const at = Number(event.currentTarget.value); replayAt = at >= span ? null : at; }} />
           <span class="num muted">{clock(replayAt ?? span)} / {clock(span)}</span>
         </div>
       </Chart>

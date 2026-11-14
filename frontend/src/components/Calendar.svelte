@@ -3,6 +3,7 @@
   // row a weekday, a dot a day, lit the more brews it holds. Hovering or
   // focusing a day reads it out as text; clicking one asks for that day.
   import { t, locale } from "../lib/i18n.svelte";
+  import { dayKey } from "../lib/format";
 
   let { counts, selected = null, onpick }:
     { counts: Record<string, number>; selected?: string | null; onpick: (day: string) => void } = $props();
@@ -14,10 +15,16 @@
   const MONTH_SIZE = 0.72;    // their font size, cell units (a cell is 14 px on a phone, 30 px on a large display)
   const MONDAY_FIRST = true;  // weeks run Monday to Sunday
 
-  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const ymd = dayKey;
+  // Today moves at midnight even with the page left open (a wall display).
+  const DAY_CHECK_MS = 60_000;
+  let now = $state(new Date());
+  $effect(() => {
+    const timer = setInterval(() => { const d = new Date(); if (dayKey(d) !== dayKey(now)) now = d; }, DAY_CHECK_MS);
+    return () => clearInterval(timer);
+  });
 
   const grid = $derived.by(() => {
-    const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const row = (today.getDay() + (MONDAY_FIRST ? 6 : 0)) % 7;
     const cells: { key: string; date: Date; col: number; row: number }[] = [];

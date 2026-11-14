@@ -64,7 +64,7 @@
     const total = info?.recipe.pours.length;
     return total ? t("brew.pour_of", { n: brew.pour + 1, total }) : t("brew.pour", { n: brew.pour + 1 });
   });
-  const liveMarks = $derived(startMarks(live.marks));
+  const liveMarks = $derived(startMarks(Object.entries(live.startAt).map(([i, time]) => [Number(i), time] as [number, number])));
   const liveLines = $derived.by((): Line[] => {
     const out: Line[] = [];
     if (info) out.push({ key: "plan", kind: "plan", label: t("chart.plan"), points: planLine(info.plan) });

@@ -6,7 +6,7 @@
 <script lang="ts">
   import { api } from "../lib/hub.svelte";
   import { t } from "../lib/i18n.svelte";
-  import { clock, when, endingText } from "../lib/format";
+  import { clock, when, endingText, dayKey } from "../lib/format";
   import type { BrewSummary } from "../lib/records";
   import Spark from "../components/Spark.svelte";
   import Calendar from "../components/Calendar.svelte";
@@ -30,11 +30,16 @@
   // The day a brew started, on this device's calendar, as YYYY-MM-DD (what a date input holds).
   const dayOf = (iso: string | null): string => {
     const d = new Date(iso ?? "");
-    return isNaN(+d) ? "" : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return isNaN(+d) ? "" : dayKey(d);
   };
 
-  const names = $derived([...new Set((brews ?? []).map(nameOf))].sort((a, b) => a.localeCompare(b)));
-  const ofRecipe = $derived((brews ?? []).filter((b) => !recipe || nameOf(b) === recipe));
+  // Filtered by slug, not by name: two recipes may share a name. A brew with
+  // no slug (started at the machine with nothing loaded) is its own entry.
+  const NO_SLUG = "\u0000";
+  const keyOf = (b: BrewSummary) => b.slug ?? NO_SLUG;
+  const names = $derived([...new Map((brews ?? []).map((b) => [keyOf(b), nameOf(b)])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1])));
+  const ofRecipe = $derived((brews ?? []).filter((b) => !recipe || keyOf(b) === recipe));
   // The calendar counts the recipe's brews on every day; the range is what it then picks.
   const counts = $derived.by(() => {
     const out: Record<string, number> = {};
@@ -65,7 +70,7 @@
         <label class="field wide"><span>{t("history.recipe")}</span>
           <select bind:value={recipe}>
             <option value="">{t("history.all_recipes")}</option>
-            {#each names as name (name)}<option value={name}>{name}</option>{/each}
+            {#each names as [key, name] (key)}<option value={key}>{name}</option>{/each}
           </select></label>
         <label class="field"><span>{t("history.from")}</span><input type="date" bind:value={from} /></label>
         <label class="field"><span>{t("history.to")}</span><input type="date" bind:value={to} /></label>

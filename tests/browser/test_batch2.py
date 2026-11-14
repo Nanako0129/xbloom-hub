@@ -27,8 +27,9 @@ def clock(seconds: float) -> str:
 
 def seed(hub, brew_id: str, started: str, recipe: str | None = None, rezeroed=None) -> None:
     record = _record(brew_id, started)
-    if recipe:
+    if recipe:          # a recipe of its own: its name, and its slug
         record["recipe"] = {**record["recipe"], "name": recipe}
+        record["slug"] = recipe.lower()
     if rezeroed:
         record["rezeroed"] = rezeroed
     (Path(hub.machine._brews._dir) / f"{brew_id}.json").write_text(json.dumps(record), encoding="utf-8")
@@ -74,6 +75,8 @@ def test_replay_plays_and_scrubs_and_the_reading_follows(ui, hub):
     ui.get_by_role("button", name="Replay").click()
     expect(scrub).to_have_value("12", timeout=6000)
     expect(ui.get_by_role("button", name="Replay")).to_be_visible()
+    # At the end the replay is over: the whole brew, and no moment read.
+    expect(ui.locator("#view .reading .time")).to_have_count(0)
 
 
 def test_reduced_motion_plays_nothing_but_the_scrubber_works(ui, hub):
@@ -127,6 +130,25 @@ def test_marks_for_pour_start_end_and_rezero_and_a_click_sets_the_reading(ui, hu
         expect(reading.locator(".mark-name")).to_have_text(title)
         expect(reading.locator(".time")).to_have_text(clock(seconds))
         ui.mouse.move(box["x"] - 40, box["y"] - 40)                 # off the chart: the clicked moment stays read
+        expect(reading.locator(".mark-name")).to_have_text(title)
+    # Another brew: the mark pinned on this one is not carried over.
+    open_record(ui)
+    expect(reading.locator(".mark-name")).to_have_count(0)
+    expect(reading.locator(".time")).to_have_count(0)
+
+
+def test_marks_are_numbered_by_the_machines_pour_index(ui, hub):
+    # The 40510 of the first pour was missed: the one seen is pour 2's.
+    seed(hub, "20261104-080000-dddd", "2026-11-04T08:00:00+08:00")
+    path = Path(hub.machine._brews._dir) / "20261104-080000-dddd.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["events"] = [[0.6, {"cmd": 40510, "pour_index": 1}], [8.0, {"cmd": 40511}]]
+    path.write_text(json.dumps(record), encoding="utf-8")
+    canvas = open_record(ui, "20261104-080000-dddd")
+    box = canvas.bounding_box()
+    reading = ui.locator("#view .reading")
+    for seconds, title in ((0.6, "Pour 2 starts"), (8.0, "Pour 2 ends")):
+        ui.mouse.click(plot_x(box, seconds), box["y"] + FLAG_Y)
         expect(reading.locator(".mark-name")).to_have_text(title)
 
 

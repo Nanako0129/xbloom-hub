@@ -60,7 +60,8 @@
   let hidden = $state<Record<string, boolean>>({});
   let at = $state<number | null>(null);          // the moment under the pointer, in seconds
   let pinned = $state<number | null>(null);      // the moment of a mark that was clicked
-  let zoom = $state<[number, number] | null>(null);   // the visible time window, when zoomed
+  // The zoom window as the slider's percentages: seconds follow a growing axis.
+  let zoomPct = $state<[number, number] | null>(null);
 
   const shown = $derived(lines.filter((line) => !hidden[line.key] && line.points.length));
   // Replaying: the measured curves end at `upto`, the plan stays whole.
@@ -79,10 +80,13 @@
   })));
   const pinnedMark = $derived(at === null && pinned !== null ? marks.find((m) => m.t === pinned) : undefined);
   // The axis is as long as the whole brew, whatever a replay has drawn so far.
+  // Another brew's marks: a mark pinned on the previous one means nothing here.
+  $effect(() => { marks; pinned = null; });
   const xMax = $derived.by(() => {
     const top = Math.max(MIN_SECONDS, ...shown.map((l) => l.points[l.points.length - 1][0]), ...marks.map((m) => m.t));
     return Math.ceil(top / MIN_SECONDS) * MIN_SECONDS;
   });
+  const zoom = $derived(zoomPct ? [(zoomPct[0] / 100) * xMax, (zoomPct[1] / 100) * xMax] as [number, number] : null);
   const kinds = $derived([...new Set(marks.map((m) => m.kind))]);
 
   // Colours come from the stylesheet's tokens, so the canvas matches the page.
@@ -165,12 +169,14 @@
       at = info ? info.value : null;
     });
     host.addEventListener("pointerleave", () => { at = null; });
+    // A drag in progress: the select cursor is not taken again under it.
+    host.addEventListener("pointerdown", () => { dragging = true; });
+    window.addEventListener("pointerup", () => { dragging = false; });
     // Double click: the whole brew again.
     host.addEventListener("dblclick", reset);
     chart.on("datazoom", () => {
       const z = (chart?.getOption() as any)?.dataZoom?.[0];
-      zoom = z && (z.start > ZOOMED_MIN_PERCENT || z.end < 100 - ZOOMED_MIN_PERCENT)
-        ? [(z.start / 100) * xMax, (z.end / 100) * xMax] : null;
+      zoomPct = z && (z.start > ZOOMED_MIN_PERCENT || z.end < 100 - ZOOMED_MIN_PERCENT) ? [z.start, z.end] : null;
     });
     chart.on("click", (event: any) => {
       if (event.componentType === "markPoint" && typeof event.data?.t === "number") pinned = event.data.t;
@@ -188,12 +194,15 @@
   // A pointer that can drag precisely drags to select a time range; on a
   // touch screen a drag stays the page's scroll, and the pinch and the slider zoom.
   const SELECTS = typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
+  let dragging = false;
 
   // New data replaces the series; the zoom and the pointer stay where they are.
   $effect(() => {
     if (!chart) return;
     chart.setOption(option(), { replaceMerge: ["series"] });
-    if (SELECTS) chart.dispatchAction({ type: "takeGlobalCursor", key: "dataZoomSelect", dataZoomSelectActive: true });
+    // setOption drops the select cursor, so it is taken again, but never in
+    // the middle of a drag: a live or replaying chart redraws many times a second.
+    if (SELECTS && !dragging) chart.dispatchAction({ type: "takeGlobalCursor", key: "dataZoomSelect", dataZoomSelectActive: true });
   });
 
   const unit = (line: Line) => (line.kind === "coffee" ? "g" : "ml");
