@@ -169,7 +169,9 @@ def hub(tmp_path, monkeypatch):
             others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
             for other in others:
                 other.cancel()
-            await asyncio.gather(*others, return_exceptions=True)
+            _, stuck = await asyncio.wait(others, timeout=5) if others else (None, set())
+            for task in stuck:
+                print(f"simulator task did not stop: {task.get_coro()}")
 
     def run():
         try:

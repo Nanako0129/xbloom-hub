@@ -122,7 +122,8 @@ def test_stop_is_the_same_node_through_a_brew(ui, hub):
     assert brews[0]["reason"] == "stopped"
 
 
-def test_the_ticket_goes_when_the_machine_leaves_armed(ui, hub):
+def test_start_is_offered_only_for_this_pages_own_load(ui, hub):
+    """The same recipe loaded again elsewhere is not this page's load."""
     load_from_page(ui, hub, "short")
     assert hub.api("POST", "/api/machine/cancel").status_code == 200
     hub.wait_state("idle")
@@ -274,9 +275,10 @@ def test_both_languages_have_every_word(ui, hub):
         ui.wait_for_selector("#machine .state")
         expect(ui.locator("#tabs")).to_contain_text(tab)
         for hash_ in ("#/recipes", "#/recipes/short", "#/history", "#/console", "#/"):
+            # This route's view, not the last one's: clear the arrival marker,
+            # change the route, and wait for arrive() to set it again.
+            ui.evaluate("() => { delete document.getElementById('view').dataset.enter; }")
             go(ui, hub, hash_)
-            # This route's view, not the last one's: arrive() marks the view on
-            # the hash change; then wait until it has finished loading.
             ui.wait_for_function("() => 'enter' in document.getElementById('view').dataset")
             ui.wait_for_function("() => !document.getElementById('view').innerText.includes(t('loading'))")
             ui.wait_for_timeout(200)

@@ -43,8 +43,9 @@ GUARDS = {
         # Rebuild the view on every snapshot, as a careless rewrite would.
         ('? [s.state, s.error, slug, s.brew && s.brew.id,', '? [s.state, s.error, slug, s.brew && s.brew.elapsed_s,'),
     ]),
-    "the ticket goes when the machine leaves armed": ("test_the_ticket_goes_when_the_machine_leaves_armed", [
-        ("  if (ticket && next.seq > ticket.seq\n      && !(next.state === \"armed\" && next.recipe && next.recipe.slug === ticket.slug)) ticket = null;\n", ""),
+    "Start only for this page's own load": ("test_start_is_offered_only_for_this_pages_own_load", [
+        # Judge by recipe instead of by load: a reload of the same recipe elsewhere looks like ours.
+        ('state.state === "armed" && state.load_id === ticket.loadId', 'state.state === "armed" && state.recipe && state.recipe.slug === ticket.slug'),
     ]),
     "the confirmation shows the hub's recipe": ("test_the_confirmation_shows_the_recipe_the_hub_holds", [
         ('const body = [h("p", {}, t("start.body")), recipeFacts(info), ', 'const body = [h("p", {}, t("start.body")), '),
@@ -72,8 +73,11 @@ def main() -> int:
     for test, passed in baseline.items():
         if not passed:
             print(f"BROKEN    {test} fails on the page as it is: no guard can be judged by it")
+            held = False
     with tempfile.TemporaryDirectory(prefix="xbloom-mutant-") as tmp:
         for number, (name, (test, edits)) in enumerate(GUARDS.items()):
+            if not baseline[test]:
+                continue
             copy = Path(tmp) / f"guard-{number}"
             shutil.copytree(STATIC, copy)
             script = (copy / "app.js").read_text(encoding="utf-8")

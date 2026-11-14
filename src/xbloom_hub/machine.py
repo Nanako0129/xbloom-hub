@@ -99,9 +99,6 @@ class Machine:
         self._lock = asyncio.Lock()
         self._changed = asyncio.Event()
         self._subscribers: set[asyncio.Queue] = set()
-        # Counts published states. A page can tell a state sent before an
-        # answer it holds from one sent after, whatever order they arrive in.
-        self._seq = 0
         self._info: dict = {}
         self._activity: int | None = None
         self._finished = False          # a brew finished and the machine has not moved on
@@ -139,8 +136,11 @@ class Machine:
         ticket or the machine's serial number."""
         brew = self._brew
         return {
-            "seq": self._seq,
             "state": self.state,
+            # Names the load that is on the machine now, not the ticket: a page
+            # holding a ticket offers Start only while this is its own load's.
+            # Random per load, so it survives no restart and repeats no earlier one.
+            "load_id": self._ticket["load_id"] if self._ticket else None,
             "activity": self._activity,
             "weight_g": self._weight,
             "water_ml": self._water,
@@ -167,7 +167,6 @@ class Machine:
 
     def _publish(self) -> None:
         self._changed.set()
-        self._seq += 1
         snap = self.snapshot()
         for queue in self._subscribers:
             if queue.full():           # a slow reader loses the oldest state
@@ -511,7 +510,8 @@ class Machine:
             # One ticket per load. What it stands for cannot change under it:
             # a loaded recipe can be neither saved over nor deleted.
             ticket = secrets.token_urlsafe(16)
-            self._ticket = {"ticket": ticket, "expires": time.monotonic() + TICKET_TTL_S}
+            self._ticket = {"ticket": ticket, "expires": time.monotonic() + TICKET_TTL_S,
+                            "load_id": secrets.token_hex(8)}
             if not await self._wait_for(lambda: self.state == "armed", 5):
                 # The frames were accepted but the machine has not said it is
                 # waiting. Do not report a load, and do not keep the slug

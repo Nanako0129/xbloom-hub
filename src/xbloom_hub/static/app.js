@@ -315,11 +315,6 @@ function onSnapshot(next) {
     log.push([new Date(), next]);
     if (log.length > 200) log.shift();
   }
-  // The ticket goes as soon as the machine is anywhere but on this recipe's
-  // screen. Only states published after the load count: one from before it
-  // can still arrive after the load's answer, and says nothing about it.
-  if (ticket && next.seq > ticket.seq
-      && !(next.state === "armed" && next.recipe && next.recipe.slug === ticket.slug)) ticket = null;
   const brew = next.brew;
   if (brew) {
     if (live.id !== brew.id) {
@@ -581,7 +576,7 @@ function viewHome() {
 function viewArmed() {
   const slug = state.recipe.slug;
   const info = plans.get(slug);
-  const mine = ticket && ticket.slug === slug;
+  const mine = ownLoad();
   const left = [];
   if (info) {
     const recipe = info.recipe;
@@ -662,10 +657,20 @@ function updateBrewing() {
   return true;
 }
 
+// Start is offered only while the load on the machine is the one this page
+// made, named by the hub's load id. The state and the load's answer arrive on
+// two channels in no fixed order, and states can be missed across a
+// reconnect or a hub restart; comparing ids needs neither order nor every
+// state. A ticket for any other load stays unusable here (the hub has voided
+// it too) until the next load from this page replaces it.
+function ownLoad() {
+  return Boolean(ticket && ticket.loadId && state && state.state === "armed" && state.load_id === ticket.loadId);
+}
+
 async function load(slug) {
   plans.delete(slug);       // what is about to be loaded is what the hub holds now
   const loaded = await api("POST", "/api/machine/load", { slug });
-  ticket = { slug, value: loaded.ticket, seq: loaded.seq };
+  ticket = { slug, value: loaded.ticket, loadId: loaded.load_id };
   location.hash = "#/";
 }
 
@@ -1048,7 +1053,7 @@ function render() {
     const s = state || {};
     const slug = (s.recipe && s.recipe.slug) || (s.brew && s.brew.slug) || "";
     const shape = r.name === "home"
-      ? [s.state, s.error, slug, s.brew && s.brew.id, Boolean(ticket && ticket.slug === slug), Boolean(plans.get(slug)),
+      ? [s.state, s.error, slug, s.brew && s.brew.id, ownLoad(), Boolean(plans.get(slug)),
         s.cup, s.water_enough, library ? library.length : -1, lastBrew ? lastBrew.id : "", recent.length]
       : [s.state, s.error, s.activity, s.cup, s.water_enough, s.fw_version, log.length, gateRecent.length, token() ? 1 : 0];
     // While a brew runs, only the brew changes the view: a request coming back

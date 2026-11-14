@@ -716,20 +716,20 @@ def test_the_scale_reset_during_a_brew_is_carried_over(tmp_path):
     asyncio.run(run())
 
 
-def test_every_published_state_is_numbered_and_a_load_answer_carries_its_number(tmp_path):
-    """A page tells a state sent before a load's answer from one sent after."""
+def test_each_load_has_its_own_public_id_and_the_ticket_stays_private(tmp_path):
+    """A page tells its own load from any other by the load id in the state."""
     async def run():
         machine, _, task = await ready(tmp_path)
-        queue = machine.subscribe()
-        first = machine.snapshot()["seq"]
-        loaded = await machine.load("test", lambda: ITEM)
-        seen = []
-        while not queue.empty():
-            seen.append(queue.get_nowait()["seq"])
-        assert seen == sorted(seen) and len(set(seen)) == len(seen) and seen[0] > first
-        assert loaded["seq"] == seen[-1] and loaded["state"] == "armed"
+        assert machine.snapshot()["load_id"] is None
+        first = await machine.load("test", lambda: ITEM)
+        assert first["load_id"] and machine.snapshot()["load_id"] == first["load_id"]
+        assert first["ticket"] not in str(machine.snapshot())
         await machine.cancel()
-        assert machine.snapshot()["seq"] > loaded["seq"]
+        assert machine.snapshot()["load_id"] is None
+        second = await machine.load("test", lambda: ITEM)
+        assert second["load_id"] and second["load_id"] != first["load_id"]
+        await machine.start(second["ticket"])
+        assert machine.snapshot()["load_id"] is None           # the ticket is spent
         task.cancel()
 
     asyncio.run(run())
