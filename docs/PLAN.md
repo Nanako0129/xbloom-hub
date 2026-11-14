@@ -956,6 +956,67 @@ pull request of step 6 is reverted.
 here: stop and ask. An npm command is about to run on the host: stop. The CSP would have to change: stop and ask. A browser
 test of a safety flow fails on the new page: the switch waits.
 
+## S3d — pairing a device by QR code
+
+Asked for by the owner on 2026-11-14, before anything ships: a phone opened
+the dashboard on the home network, could read everything, and was refused
+(401) the first time it tried to load a recipe. The only way to give a
+device the token is to open `/#t=<token>` on it, which on a phone means
+carrying a 43-character secret across by hand. The owner chose pairing by
+QR code over trusting the home network and over a typed code.
+
+**Outcome.** On a device that already holds the token, the console offers
+"add a device". It shows a QR code for a short-lived, single-use pairing
+address. A phone's camera opens that address, the page exchanges the code
+for the token, and from then on the phone can do what the first device can.
+A device without the token that presses a control is told it is not paired
+and where to pair it, instead of a bare "unauthorized".
+
+**Scope.**
+
+- Hub: `POST /api/pair/start` (token required) creates a pairing code:
+  `secrets.token_urlsafe(16)`, kept only as its SHA-256 with an expiry of
+  5 minutes, at most 3 alive at once (a fourth replaces the oldest), and
+  answers `{code, expires_in_s}`. `POST /api/pair/claim` with `{code}` (no
+  token; inside the allowed networks like everything else) answers
+  `{token}` if the code is alive, and forgets it at once: single use. A
+  wrong, used or expired code is `403 bad_pairing_code`, the same answer in
+  every case. Codes live in memory; a hub restart voids them.
+- Page: the console's "add a device" calls start and draws the QR code of
+  `<this page's origin>/#p=<code>`, with the expiry counting down and a
+  button to close it; closing it does not void the code (it expires). The
+  page reads `#p=` like `#t=`: before routing, out of the address with
+  `history.replaceState`, then claims it and keeps the token. A control
+  answered 401 shows "this device is not paired" with how to pair.
+- The QR code is drawn by a small library, `qrcode-generator`, pinned and
+  added to the bundle allow-list, rendered as SVG elements the page
+  builds (no `innerHTML`, no data URI), under the CSP as it is.
+
+**Non-goals.** One token per device and revoking one (the hub has one
+token; recorded as a later improvement); pairing from outside the allowed
+networks; a pairing code typed by hand.
+
+**What must stay true.** The token is never in a QR code, an address, a
+log or a response other than the claim's. A code is useless after one
+claim, after 5 minutes and after a restart. Starting a pairing needs the
+token. The claim is subject to the network check and the Host check like
+every route.
+
+**Acceptance.** Hub tests: start needs the token; a code claims once and
+then fails; an expired code fails; a fourth code voids the first; the
+answer for wrong, used and expired codes is identical; the token is not in
+the start answer; codes are not kept in clear. Browser tests (Chromium and
+WebKit): a paired page starts a pairing and shows a QR code; a second,
+fresh browser context opens the pairing address and can then load a
+recipe; the address no longer holds the code; an unpaired context pressing
+Load sees the "not paired" message; no CSP violation. On the owner's phone:
+scan, then load the 25 ml test recipe.
+
+**Rollback.** Two routes, one page section, one dependency.
+
+**Stops.** The QR library needs inline styles, `eval` or `innerHTML` to
+draw: stop and ask.
+
 ## S0 — prove the radio path
 
 Done 2026-11-14: [S0-RESULTS.md](S0-RESULTS.md). The text below is the slice
