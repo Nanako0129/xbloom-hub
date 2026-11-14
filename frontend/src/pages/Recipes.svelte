@@ -11,7 +11,10 @@
 
 <div class="row">
   <h1>{t("recipes.title")}</h1>
-  <a class="pill" href="#/recipes/new">{t("action.new_recipe")}</a>
+  <div class="actions">
+    <a class="pill" href="#/community">{t("community.title")}</a>
+    <a class="pill" href="#/recipes/new">{t("action.new_recipe")}</a>
+  </div>
 </div>
 {#if failed}
   <p class="notice bad">{failed}</p>
