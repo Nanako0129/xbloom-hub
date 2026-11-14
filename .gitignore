@@ -14,3 +14,8 @@ data/
 
 # secrets for a local run: the hub token and the proxy key
 secrets/
+
+# the dashboard's build output and the packages it is built from (S3c, C12);
+# no trailing slash, so a symlink would match too
+src/xbloom_hub/web
+frontend/node_modules

@@ -24,6 +24,9 @@ from .recipes import RecipeInvalid, RecipeStore, as_sent, plan
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
 STATIC_DIR = Path(__file__).parent / "static"
+# The dashboard being rebuilt (docs/PLAN.md, S3c): built by frontend/npm.sh
+# run build, served at /next/ beside the current one until it replaces it.
+WEB_DIR = Path(__file__).parent / "web"
 
 # No inline script or style, nothing from another origin, no framing. The
 # page puts every string it did not write itself into the document as text;
@@ -261,6 +264,10 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             # The SDK's route itself, at /mcp, rather than a Mount (which
             # would answer at /mcp/ and redirect /mcp).
             *mcp_app.routes,
+            # The new dashboard, only when it has been built; the current one
+            # stays at / either way, so a checkout with no build works as before.
+            *([Mount("/next", app=StaticFiles(directory=WEB_DIR, html=True), name="next")]
+              if (WEB_DIR / "index.html").is_file() else []),
             # Last: the dashboard's own files.
             Mount("/", app=StaticFiles(directory=STATIC_DIR, html=True), name="static"),
         ],

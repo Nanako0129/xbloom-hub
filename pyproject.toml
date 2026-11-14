@@ -39,6 +39,11 @@ environments = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+# The built dashboard is git-ignored but shipped: in the sdist and the wheel
+# (docs/PLAN.md, S3c). Build it first with frontend/npm.sh run build.
+artifacts = ["src/xbloom_hub/web/**"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Browser tests start a browser; run them with -m browser (tests/browser/conftest.py).
