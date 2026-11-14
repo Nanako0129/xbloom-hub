@@ -202,9 +202,8 @@ def test_import_by_share_link_keeps_the_plus(hub):
     ({"grandWater": 240}, "ratio"),
     ({"isSetGrinderSize": 0}, "grind"),
     ({"isEnableBypassWater": 1}, "bypass_water"),
-    ({"bypassVolume": 40}, "bypass_water"),
-    ({"bypassTemp": 80}, "bypass_water"),
-    ({"podsVo": {"id": 1}}, "pod"),
+    ({"isEnableBypassWater": None, "bypassVolume": 40}, "bypass_water"),
+    ({"isEnableBypassWater": None, "bypassTemp": 80}, "bypass_water"),
     ({"pourCount": 2}, "pour_count"),
     ({"theName": "x" * 10_000}, "name"),
 ])
@@ -544,3 +543,26 @@ def test_a_shaping_failure_is_a_502(tmp_path, monkeypatch):
         monkeypatch.setattr(cm, "_card", broken)
         reply = hub.get("/api/community/search?keyword=kenya", headers=AUTH)
         assert reply.status_code == 502 and reply.json()["detail"] == "malformed_response"
+
+
+# ---- the owner's decisions after the live check (2026-11-14) ------------- #
+def test_bypass_switched_off_with_its_leftover_values_is_importable(tmp_path):
+    vo = vo_with(isEnableBypassWater=2, bypassVolume=5.0, bypassTemp=85.0)
+    with make_client(tmp_path, Fake(vo=vo)) as hub:
+        shown = hub.get("/api/community/4242", headers=AUTH).json()
+        assert shown["importable"] is True, shown["reasons"]
+        assert shown["from_xbloom_users"]["recipe"]["pours"] == SAVED["pours"]
+
+
+def test_a_pod_recipe_is_importable_and_names_its_pod(tmp_path):
+    pod = {"theName": "Rwanda Washed", "origin": "Rwanda", "varietal": ["Bourbon"],
+           "process": "Washed", "roast": "Light", "image": "https://img.example/p.png"}
+    detail = {**DETAIL, "origin": [], "varietal": [], "process": [], "roast": None,
+              "introduce": "Sweet."}
+    with make_client(tmp_path, Fake(vo=vo_with(podsVo=pod), detail=detail)) as hub:
+        reply = hub.post("/api/community/import", json={"id": 4242, "slug": "pod"}, headers=AUTH)
+        assert reply.status_code == 200, reply.text
+        meta = hub.get("/api/recipes/pod", headers=AUTH).json()["meta"]
+        assert meta["notes"] == "xPod: Rwanda Washed. Sweet."
+        assert meta["bean"] == "Rwanda, Bourbon" and meta["process"] == "Washed" and meta["roast"] == "Light"
+        assert "img.example" not in json.dumps(meta)

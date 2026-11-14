@@ -210,13 +210,36 @@ def to_hub(vo: object, sid: str, found: dict | None = None) -> tuple[dict | None
 
     if _whole(vo.get("pourCount")) != len(pour_list):
         reasons["pour_count"] = "differs_from_pours"
-    if (vo.get("isEnableBypassWater") == 1 or vo.get("bypassVolume") is not None
-            or vo.get("bypassTemp") is not None):
+    # Bypass on (1) is not importable. Off (2) carries a volume and a
+    # temperature all the same (5.0 ml and 85 or 40 °C seen live, 2026-11-14):
+    # unused, so ignored. Owner's decision on that date. With no switch at
+    # all, a volume or temperature still counts as bypass.
+    bypass = vo.get("isEnableBypassWater")
+    if bypass == 1 or (bypass != 2 and (vo.get("bypassVolume") is not None
+                                        or vo.get("bypassTemp") is not None)):
         reasons["bypass_water"] = "not_supported"
-    if vo.get("podsVo"):
-        reasons["pod"] = "not_supported"
+    # A recipe made for an xBloom pod (every official one seen live) is
+    # importable: its pours are complete; the pod is named in the notes and
+    # its beans fill the bean fields the community card leaves empty.
+    # Owner's decision, 2026-11-14.
+    pod = vo.get("podsVo") if isinstance(vo.get("podsVo"), dict) else {}
 
     meta = {"source": share_link(sid)}
+
+    def joined(value: object) -> str:
+        items = value if isinstance(value, list) else [value]
+        return clean_text(", ".join(str(v) for v in items if isinstance(v, (str, int)) and str(v).strip()))
+
+    pod_name = clean_text(str(pod.get("theName") or ""))[:NAME_MAX].strip()
+    for key, value in (
+        ("notes", f"xPod: {pod_name}" if pod_name else ""),
+        ("roast", joined(pod.get("roast"))[:META_MAX].strip()),
+        ("process", joined(pod.get("process"))[:META_MAX].strip()),
+        ("bean", joined([*(pod.get("origin") if isinstance(pod.get("origin"), list) else [pod.get("origin")]),
+                         *(pod.get("varietal") if isinstance(pod.get("varietal"), list) else [pod.get("varietal")])])[:META_MAX].strip()),
+    ):
+        if value:
+            meta[key] = value
     if found is not None:
         for key, value in (
             ("notes", clean_text(found.get("description") or "")[:META_MAX].strip()),
@@ -227,7 +250,8 @@ def to_hub(vo: object, sid: str, found: dict | None = None) -> tuple[dict | None
                                            *(found.get("varietal") or [])]))[:META_MAX].strip()),
         ):
             if value:
-                meta[key] = value
+                meta[key] = (f"{meta['notes']}. {value}"[:META_MAX].strip()
+                             if key == "notes" and meta.get("notes") else value)
 
     recipe = {
         "name": name, "cup_type": whole(vo, "cupType", "cup_type"),

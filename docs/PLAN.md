@@ -702,7 +702,18 @@ for `checked()` to fill in.
 
 Not importable, whatever else holds: `isEnableBypassWater` equal to 1, a
 `bypassVolume` or `bypassTemp` present, a non-empty `podsVo`, `pourCount`
-different from the length of `pourList`. The result then goes through
+different from the length of `pourList`.
+
+*Changed after the live check, by the owner (2026-11-14).* Of four official
+recipes all four had a `podsVo`, and of three community recipes all three
+carried `bypassVolume` and `bypassTemp` (5.0 ml; 85 or 40 °C) with
+`isEnableBypassWater` at 2, off. Per the Stops below, the choice went to the
+owner, who chose: bypass blocks only when the switch is 1 (or, with no
+switch, when a volume or temperature is present); a pod recipe is
+importable, its pod named in `meta.notes` (`xPod: <name>`) and the pod's
+origin, varietal, process and roast filling the bean fields. After the
+change, an official recipe, a community recipe and a share link each
+imported against the live service. The result then goes through
 `checked()` like any recipe, and what `checked()` refuses is not importable
 either.
 
