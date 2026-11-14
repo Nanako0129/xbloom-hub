@@ -958,6 +958,13 @@ test of a safety flow fails on the new page: the switch waits.
 
 ## S3d — pairing a device by QR code
 
+Done 2026-11-14 (PRs #24, #25): the owner opened the console on the Mac,
+scanned the QR code with the phone's camera, and the phone, paired, loaded
+the 25 ml test recipe and cancelled it (hub log: the claim from the
+phone's address, then its load and cancel, both 200). The first try found
+no panel at the network address, which led to #25. The text below is the
+slice as reviewed.
+
 Asked for by the owner on 2026-11-14, before anything ships: a phone opened
 the dashboard on the home network, could read everything, and was refused
 (401) the first time it tried to load a recipe. The only way to give a
