@@ -613,16 +613,21 @@ only uses the session it is handed.
 - `src/xbloom_hub/community.py`: one module that owns one `httpx.AsyncClient`
   for the life of the hub and offers `search`, `detail` and `fetch_share`.
   All outbound requests go through one function in it, which
-  - posts only to the three fixed endpoint URLs (two on
-    `collective-api.xbloom.com` for search/criteria and detail, one on
-    `client-api.xbloom.com`), and refuses any other;
+  - posts only to these four URLs and refuses any other before a request
+    is made:
+    `https://collective-api.xbloom.com/communityRecipe/recipe/criteria`,
+    `https://collective-api.xbloom.com/communityRecipe/index/page`,
+    `https://collective-api.xbloom.com/communityRecipe/recipe/detail`,
+    `https://client-api.xbloom.com/RecipeDetail.html`;
   - sets `follow_redirects=False`, `trust_env=False`, no cookies kept, the
     library's default User-Agent, no `Origin` or `Referer`;
   - treats every status other than 200 as a failure, 3xx included;
   - reads the body as a stream and stops at 1 MiB, counted after
     decompression;
-  - has a 10 s timeout per request, and each hub operation (a detail is up
-    to three requests) has one 15 s deadline over all of them.
+  - has a 10 s timeout per request, and each hub operation has one 15 s
+    deadline over all of its requests. A detail is up to three: the
+    criteria (once per hub run; the library asks for them while parsing and
+    keeps them), the detail, and the share answer.
   `XBloomCommunityClient` is given a small object with the `post()` it calls,
   backed by that function, so its request shapes and parsing are reused. The
   share request is made by the hub itself with the same body the library
@@ -663,6 +668,38 @@ only uses the session it is handed.
   hub's criteria list, a result grid, a detail view with the plan chart, and
   "Save to my recipes" asking for an id. A field for a share link.
 
+**From the share answer to the hub's recipe.** The complete recipe is the
+`recipeVo` object of the share answer. Each field of the hub's shape is
+taken from it by this table and by nothing else; a value the rule cannot
+take makes the recipe not importable, with the field named. Nothing is left
+for `checked()` to fill in.
+
+| Hub field | From `recipeVo` | Rule |
+|---|---|---|
+| `name` | `theName` | text, through `clean_text()`; over the name cap is not importable |
+| `cup_type` | `cupType` | whole number |
+| `dose_g` | `dose` | must be a whole number of grams (15.0 is 15; 15.5 is not importable) |
+| `ratio` | `grandWater` | read as the denominator N of 1:N, as share answers carry it; must be 5 to 25 on the 0.5 step, else not importable. Never divided by the dose and never snapped |
+| `grind` | `isSetGrinderSize` | `1` is true, `2` is false, anything else is not importable |
+| `grind_size` | `grinderSize` | whole number, also when `grind` is false |
+| `grinder_speed_rpm` | `rpm` | whole number |
+| `pours[i].volume_ml` | `pourList[i].volume` | whole number |
+| `pours[i].temperature_c` | `pourList[i].temperature` | whole number |
+| `pours[i].pause_s` | `pourList[i].pausing` | whole number |
+| `pours[i].pattern` | `pourList[i].pattern` | as given |
+| `pours[i].flow_rate` | `pourList[i].flowRate` | as given, one decimal |
+| `pours[i].agitate_before` | `pourList[i].isEnableVibrationBefore` | as given (1 or 2); a missing value is not importable |
+| `pours[i].agitate_after` | `pourList[i].isEnableVibrationAfter` | the same |
+| `meta.source` | the share id | the share link rebuilt from the id |
+| `meta.notes` | the community detail's `description`, when imported by id | through `clean_text()`, cut at the meta cap |
+| `meta.roast`, `meta.process`, `meta.bean` | the community detail's `roast`, `process`, `origin` and `varietal`, when imported by id | joined with ", ", through `clean_text()` |
+
+Not importable, whatever else holds: `isEnableBypassWater` equal to 1, a
+`bypassVolume` or `bypassTemp` present, a non-empty `podsVo`, `pourCount`
+different from the length of `pourList`. The result then goes through
+`checked()` like any recipe, and what `checked()` refuses is not importable
+either.
+
 **Non-goals.** Signing in to an xBloom account, the account's own recipes,
 uploading or liking, the app's Trending and For You lists (they live on the
 account API), images (never fetched by the hub and never shown: P3/P4 above),
@@ -675,7 +712,8 @@ would be a different recipe from the one its author wrote.
 Reviewed read-only before any code (2026-11-14): no P0 or P1; fifteen
 findings, all folded into this section.
 
-- The hub makes requests to exactly three fixed HTTPS URLs on two hosts. No
+- The hub makes requests to exactly the four fixed HTTPS URLs listed under
+  Scope, on two hosts. No
   URL from a caller or from a response is ever fetched. A share link, pasted
   or taken from a search result, is parsed by the hub: scheme `https`, host
   exactly `share-h5.xbloom.com`, no user info, port absent or 443, exactly
@@ -699,8 +737,14 @@ findings, all folded into this section.
 
 **Acceptance.**
 
-- Tests with a fake session, no network: search and detail map to the
-  documented shape; a recipe that fails `checked()` is reported, not saved;
+- Tests with a fake transport, no network: each of the four URLs passes the
+  outbound function and a fifth is refused before any request; a recorded-
+  shape `recipeVo` with agitation on before the first pour, the grinder off
+  and a flow rate of 3.2 is imported and the saved file is compared field by
+  field with the table above (it fails if `grind`, `ratio`, a `flow_rate` or
+  an agitation field differs); a fractional dose, a `grandWater` of 16.2 and
+  one of 240 are each not importable; search and detail return the listed
+  fields; a recipe that fails `checked()` is reported, not saved;
   a share link on another host, or with no id, is refused before any
   request; an import refuses a slug in use and one that is not a slug; a
   timeout, a non-200, a 302, a 200 of the wrong shape and a body over the
