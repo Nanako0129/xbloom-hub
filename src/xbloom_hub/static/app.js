@@ -65,7 +65,7 @@ function iconSvg(name) {
     rows.forEach((row, y) => [...row].forEach((bit, x) => {
       if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R, class: name === "cup" && y < 2 ? `steam s${y}` : "" }));
     }));
-    return svg("svg", { viewBox: `0 0 ${rows[0].length} ${rows.length}`, class: `matrix ${name}`, "aria-hidden": "true" }, lit);
+    return svg("svg", { viewBox: `0 0 ${rows[0].length} ${rows.length}`, class: `matrix dot-${name}`, "aria-hidden": "true" }, lit);
   }
   return svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" }, (ICONS[name] || []).map((part) =>
     Array.isArray(part) ? svg("path", { d: part[0], class: "solid" }) : svg("path", { d: part })));
@@ -277,12 +277,13 @@ function fetchLibrary() {
 }
 
 // Once each time the machine comes to rest, so a brew that just ended shows up.
+let recent = [];             // every brew's summary, newest first
 function fetchLastBrew() {
   // live.id is the last brew this page watched; a new one means a new record.
   const mark = `rest:${live.id || ""}`;
   if (lastBrewAsked === mark) return;
   lastBrewAsked = mark;
-  api("GET", "/api/brews").then((brews) => (brews.length ? api("GET", `/api/brews/${brews[0].id}`) : null))
+  api("GET", "/api/brews").then((brews) => { recent = brews; return brews.length ? api("GET", `/api/brews/${brews[0].id}`) : null; })
     .then((record) => { lastBrew = record; render(); }).catch(() => {});
 }
 
@@ -330,7 +331,10 @@ function renderStatus() {
     h("dl", { class: "facts" },
       h("dt", {}, t("cup")), h("dd", {}, state.cup === true ? t("cup.on") : state.cup === false ? t("cup.off") : t("cup.unknown")),
       h("dt", {}, t("tank")), h("dd", {}, state.water_enough === 1 ? t("tank.ok") : state.water_enough === 0 ? t("tank.low") : "-"),
-      h("dt", {}, t("console.firmware")), h("dd", { class: "num" }, state.fw_version || "-")));
+      h("dt", {}, t("console.firmware")), h("dd", { class: "num" }, state.fw_version || "-")),
+    state.state === "released"
+      ? button(t("action.acquire"), "link", { class: "quiet small", on: { click: () => act(() => api("POST", "/api/link/acquire")) } })
+      : button(t("action.release"), "unlink", { class: "quiet small", disabled: state.state === "brewing", on: { click: confirmRelease } }));
 }
 
 // ---- views ----------------------------------------------------------------------
@@ -431,6 +435,29 @@ function viewFinished() {
   ];
 }
 
+const scaleDots = () => dots(state.weight_g === null || state.weight_g === undefined ? "-" : String(Math.round(state.weight_g)), t("home.scale"));
+
+// The scale changes several times a second; only its dots are redrawn.
+function updateScale() {
+  const node = document.getElementById("live-scale");
+  if (node) node.replaceChildren(scaleDots());
+}
+
+// The last few brews and what they add up to.
+function recentCard() {
+  if (!recent.length) return null;
+  const water = recent.reduce((sum, b) => sum + (b.water_ml || 0), 0);
+  return h("section", { class: "card wide-only" },
+    h("div", { class: "row" }, h("h2", {}, t("home.recent")), h("a", { href: "#/history" }, t("home.all_brews"))),
+    h("dl", { class: "facts" },
+      h("dt", {}, t("home.count")), h("dd", { class: "num" }, String(recent.length)),
+      h("dt", {}, t("home.total_water")), h("dd", { class: "num" }, `${Math.round(water)} ml`)),
+    h("ul", { class: "list compact" }, recent.slice(0, 5).map((b) => h("li", {},
+      h("a", { href: `#/history/${b.id}` },
+        h("span", { class: "title" }, b.recipe_name || t("brew.at_machine")),
+        h("span", { class: "sub num" }, [when(b.started_at), `${b.water_ml === null ? "-" : Math.round(b.water_ml)} ml`, endingText(b.reason)].join("   ")))))));
+}
+
 // What is reached for most, as large as the machine draws its own three.
 function tile(icon, label, attrs) {
   return h(attrs.href ? "a" : "button", { class: "tile", ...attrs }, h("span", { class: "icon" }, iconSvg(icon)), h("span", {}, label));
@@ -457,20 +484,22 @@ function viewHome() {
   const cards = (library || []).slice(0, 6).map(recipeCard);
   return [
     h("h1", {}, s === "asleep" ? t("home.asleep") : t("home.ready")),
-    h("div", { class: "tiles" },
-      tile("list", t("tab.recipes"), { href: "#/recipes" }),
-      tile("curve", t("tab.history"), { href: "#/history" }),
-      tile("apart", t("action.release"), { disabled: busy, on: { click: confirmRelease } })),
-    h("div", { class: "cols" },
-      h("div", {},
+    h("div", { class: "home" },
+      // What the machine is doing right now: its scale, as its own display shows it.
+      h("div", { class: "home-now" },
+        h("section", { class: "card scale" },
+          h("div", { id: "live-scale" }, scaleDots()),
+          h("div", { class: "label" }, t("home.scale")),
+          h("dl", { class: "facts" }, cupLine(), h("dt", {}, t("tank")), h("dd", {}, tankText()))),
+        h("div", { class: "tiles" },
+          tile("list", t("tab.recipes"), { href: "#/recipes" }),
+          tile("curve", t("tab.history"), { href: "#/history" }))),
+      h("div", { class: "home-pick" },
         h("h2", {}, t("home.pick")),
         !library ? h("p", { class: "muted" }, t("loading"))
           : cards.length ? h("div", { class: "grid" }, cards) : h("p", { class: "muted" }, t("recipes.empty")),
         library && library.length > 6 ? h("p", {}, h("a", { href: "#/recipes" }, t("home.all_recipes"))) : null),
-      h("div", {},
-        h("section", { class: "card" }, h("h2", {}, t("card.machine")),
-          h("dl", { class: "facts" }, cupLine(), h("dt", {}, t("tank")), h("dd", {}, tankText()))),
-        lastBrewCard())),
+      h("div", { class: "home-past" }, lastBrewCard(), recentCard())),
   ];
 }
 
@@ -790,11 +819,12 @@ function render() {
     const slug = (s.recipe && s.recipe.slug) || (s.brew && s.brew.slug) || "";
     const shape = r.name === "home"
       ? [s.state, s.error, slug, s.brew && s.brew.id, Boolean(ticket && ticket.slug === slug), Boolean(plans.get(slug)),
-        s.cup, s.water_enough, library ? library.length : -1, lastBrew ? lastBrew.id : ""]
+        s.cup, s.water_enough, library ? library.length : -1, lastBrew ? lastBrew.id : "", recent.length]
       : [s.state, s.error, s.activity, s.cup, s.water_enough, s.fw_version, log.length, gateRecent.length, token() ? 1 : 0];
     const key = [r.name, busy, flash ? flash.text : "", LANGUAGE, ...shape].join("|");
     if (key === last) {
       if (r.name === "home" && s.state === "brewing") updateBrewing();
+      else if (r.name === "home") updateScale();
       return;
     }
     // Do not rebuild the console under an open language menu.
