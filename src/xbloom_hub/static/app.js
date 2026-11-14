@@ -34,12 +34,18 @@ function svg(tag, attrs, ...children) {
   return node;
 }
 
-// Icons, on a 24-unit grid. Strokes unless marked solid.
+// The four places, drawn in dots like the machine's display: a drop, a list,
+// a brew's curve, a prompt. Seven rows of seven; only the lit dots are drawn.
+const DOT_ICONS = {
+  drop: "0001000 0001000 0011100 0111110 1111111 1111111 0111110",
+  list: "0000000 1011111 0000000 1011111 0000000 1011100 0000000",
+  curve: "0000000 0000111 0001000 0010000 0100000 1000000 1111111",
+  prompt: "0000000 1000000 0100000 0010000 0100000 1000111 0000000",
+};
+const DOT_ICON_R = 0.4;      // of a 1-unit cell: dots stay apart at 20 px, still read as filled
+
+// Icons for actions, on a 24-unit grid. Strokes unless marked solid.
 const ICONS = {
-  drop: ["M12 3.5s6 6.4 6 10.6a6 6 0 0 1-12 0C6 9.9 12 3.5 12 3.5z"],
-  list: ["M5 7h14", "M5 12h14", "M5 17h9"],
-  clock: ["M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z", "M12 7.5V12l3 2"],
-  terminal: ["M5 8l4 4-4 4", "M12.5 16H19"],
   play: [["M8 5.2v13.6a.6.6 0 0 0 .92.5l10.6-6.8a.6.6 0 0 0 0-1L8.92 4.7a.6.6 0 0 0-.92.5z"]],
   stop: [["M7.5 6h9A1.5 1.5 0 0 1 18 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 16.5v-9A1.5 1.5 0 0 1 7.5 6z"]],
   load: ["M12 4v11", "M7.5 10.5L12 15l4.5-4.5", "M5 19.5h14"],
@@ -51,6 +57,13 @@ const ICONS = {
 };
 
 function iconSvg(name) {
+  if (DOT_ICONS[name]) {
+    const lit = [];
+    DOT_ICONS[name].split(" ").forEach((row, y) => [...row].forEach((bit, x) => {
+      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R }));
+    }));
+    return svg("svg", { viewBox: "0 0 7 7", class: "matrix", "aria-hidden": "true" }, lit);
+  }
   return svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" }, (ICONS[name] || []).map((part) =>
     Array.isArray(part) ? svg("path", { d: part[0], class: "solid" }) : svg("path", { d: part })));
 }
