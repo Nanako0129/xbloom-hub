@@ -9,7 +9,7 @@ from mcp.server.mcpserver import MCPServer
 
 from . import errors
 from .machine import Machine
-from .recipes import RecipeStore, as_sent, checked, to_machine
+from .recipes import RecipeStore, as_sent, checked
 
 INSTRUCTIONS = (
     "Recipes and machine state for an xBloom Studio coffee machine. "
@@ -88,12 +88,8 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
             if store.get(slug) is None:
                 return {"ok": False, "error": "not_found"}
 
-            def read():
-                recipe = store.get(slug)
-                return to_machine(recipe) if recipe is not None else None
-
             # Raises unless the machine reports it is waiting, so ok means armed.
-            await machine.load(slug, read)
+            await machine.load(slug, lambda: store.wire(slug))
         except _EXPECTED as err:
             return _failure(err)
         # machine.load() returns a one-time start ticket. It stays in the hub.

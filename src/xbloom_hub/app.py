@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 from . import errors
 from .machine import Machine
-from .recipes import RecipeInvalid, RecipeStore, to_machine
+from .recipes import RecipeInvalid, RecipeStore
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
@@ -71,11 +71,6 @@ class Guard:
         return await self._app(scope, receive, send)
 
 
-def _wire(store: RecipeStore, slug: str) -> dict | None:
-    recipe = store.get(slug)
-    return to_machine(recipe) if recipe is not None else None
-
-
 def create_app(machine: Machine, store: RecipeStore, token: str,
                allowed_hosts: list[str], radio=None) -> Starlette:
 
@@ -122,7 +117,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         slug = (await _json(request)).get("slug")
         if store.get(slug) is None:
             return JSONResponse({"error": "not_found"}, 404)
-        return JSONResponse(await machine.load(slug, lambda: _wire(store, slug)))
+        return JSONResponse(await machine.load(slug, lambda: store.wire(slug)))
 
     async def cancel(request):
         return JSONResponse(await machine.cancel())
