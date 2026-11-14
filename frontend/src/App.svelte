@@ -2,7 +2,7 @@
   import { hub, listen } from "./lib/hub.svelte";
   import { route } from "./lib/route.svelte";
   import { t } from "./lib/i18n.svelte";
-  import { stateName, reasonText } from "./lib/words";
+  import { stateName, stateDetail } from "./lib/words";
   import Icon from "./components/Icon.svelte";
   import MachineCard from "./components/MachineCard.svelte";
   import Console from "./pages/Console.svelte";
@@ -21,7 +21,7 @@
   const current = $derived(route.current.name === "compare" ? "history" : route.current.name);
   const s = $derived(hub.state);
   const statusText = $derived(!hub.reachable && s ? t("status.no_hub") : s ? stateName(s.state) : t("status.connecting"));
-  const statusDetail = $derived(s ? (s.state === "offline" ? reasonText(s.error) : (s.brew?.recipe_name ?? s.recipe?.name ?? "")) : "");
+  const statusDetail = $derived(s && hub.reachable ? stateDetail(s) : "");
 
   let view: HTMLElement;
   // A page arriving: the stylesheet animates #view[data-enter] for a moment.

@@ -4,13 +4,17 @@
 
 const TOKEN_KEY = "xbloom-hub-token";
 
-// Before anything reads the address: take the token out of it.
-(function takeToken() {
+// Take the token out of the address: before anything reads it, and again if
+// a #t= link is opened in a tab that already shows the page. Registered here,
+// before the router's listener, so the router never sees it.
+function takeToken(): void {
   const match = location.hash.match(/^#t=([A-Za-z0-9_\-.~+/=]+)$/);
   if (!match) return;
   try { localStorage.setItem(TOKEN_KEY, match[1]); } catch { /* private mode */ }
   history.replaceState(null, "", location.pathname + "#/");
-})();
+}
+takeToken();
+window.addEventListener("hashchange", takeToken);
 
 export function hasToken(): boolean {
   try { return Boolean(localStorage.getItem(TOKEN_KEY)); } catch { return false; }

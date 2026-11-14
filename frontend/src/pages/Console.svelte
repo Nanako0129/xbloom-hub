@@ -6,8 +6,15 @@
   import { stateName, reasonText, cupText, tankText } from "../lib/words";
 
   let gate = $state<{ at: number; code: number }[]>([]);
+  const refresh = () => { api<{ at: number; code: number }[]>("GET", "/api/gate").then((rows) => { gate = rows; }).catch(() => {}); };
+  const GATE_POLL_MS = 3000;   // as the current dashboard: the gate log has no stream of its own
   $effect(() => {
-    api<{ at: number; code: number }[]>("GET", "/api/gate").then((rows) => { gate = rows; }).catch(() => {});
+    hub.log.length;            // and at once when the machine changes state
+    refresh();
+  });
+  $effect(() => {
+    const timer = setInterval(refresh, GATE_POLL_MS);
+    return () => clearInterval(timer);
   });
 
   const timeOfDay = (date: Date) => date.toLocaleTimeString(locale());

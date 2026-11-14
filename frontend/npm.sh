@@ -16,7 +16,9 @@ set -eu
 
 # node 24.22.3, npm 11.19.1, Alpine; pinned by digest, not by tag.
 IMAGE="node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5"
-VOLUME="xbloom-hub-node-modules"
+# One node_modules per checkout: two worktrees with different lock files
+# must not share a tree.
+VOLUME="xbloom-hub-node-modules-$(cd "$(dirname "$0")" && pwd | shasum | cut -c1-12)"
 
 here=$(cd "$(dirname "$0")" && pwd)
 out="$here/../src/xbloom_hub/web"
