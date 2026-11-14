@@ -4,6 +4,25 @@ Run on 2026-11-14 with the owner at the machine, firmware V12.0D.500, the
 radio path of S0 to S2. Steps are those of `docs/PLAN.md`, S3, "Observed on
 the machine".
 
+## Step 3: started at the knob (done, 2026-11-14)
+
+The step-1 recipe (25 ml at 20 °C), loaded from the dashboard at 19:47:17
+while the machine was asleep (it woke and showed the recipe 2 s later),
+then started with the machine's knob at 19:47:29.
+
+| What | Result |
+|---|---|
+| Writes through the gate | 8102, 8104, 8004 for the load; no 8002 |
+| The record | Opened by activity `35` (`opened_by: activity_35`), `hub_started: false`, carrying the recipe and its slug |
+| Water | From 0.9 s to 25 ml; 40511 at 6.9 s, 40512 at 15.1 s; closed `finished` |
+| After | Activity `36`, then home at 19:48:10 |
+
+So a brew started at the machine is recorded like one started from the
+page. The page offers Stop for any open brew whoever started it (the
+brewing view of Home, and the browser tests' simulated knob start); on
+this run nobody looked at the page during the brew, so that part is from
+the code and the tests, not from the machine.
+
 ## Step 2: Stop (done, 2026-11-14)
 
 Recipe: grinder off, 5 g, 1:20, one 100 ml pour at 20 °C and 3.0 ml/s.
@@ -118,4 +137,4 @@ after the brew opened):
 
 - No 9002 or 9008 (cup on, cup off) arrived during the run. Whether the cup
   was lifted is not recorded, so this says nothing yet about those events.
-- Steps 3 (started at the knob) and 4 (a real brew) are still to do.
+- Step 4 (a real brew) is still to do.
