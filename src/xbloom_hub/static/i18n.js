@@ -68,6 +68,7 @@ const MESSAGES = {
     "chart.label": "水量與咖啡量隨時間的變化", "chart.water": "水", "chart.coffee": "咖啡", "chart.plan": "食譜預定的水量",
 
     "start.title": "開始沖「{name}」", "start.body": "機器會開始磨豆並注入熱水。確認豆子、濾紙、水和杯子都準備好了。",
+    "release.title": "讓出咖啡機的連線", "release.body": "hub 會放開藍牙連線，官方 App 就能連上。用完再回來按「取回連線」。",
     "stop.title": "停止這次沖煮", "stop.body": "機器會停止注水並回到首頁，這一杯不會沖完。",
     "delete.title": "刪除「{name}」", "delete.body": "食譜會從食譜庫移除，過去的沖煮紀錄不受影響。",
 
@@ -157,6 +158,7 @@ const MESSAGES = {
     "chart.label": "Water and coffee over time", "chart.water": "Water", "chart.coffee": "Coffee", "chart.plan": "Planned water",
 
     "start.title": "Start “{name}”", "start.body": "The machine will grind and pour hot water. Check that beans, filter, water and cup are ready.",
+    "release.title": "Release the machine's link", "release.body": "The hub lets go of the Bluetooth link so the official app can connect. Take it back here when you are done.",
     "stop.title": "Stop this brew", "stop.body": "The machine stops pouring and returns to home. This cup will not be finished.",
     "delete.title": "Delete “{name}”", "delete.body": "The recipe is removed from the library. Past brew records are kept.",
 

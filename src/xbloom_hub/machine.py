@@ -36,9 +36,11 @@ _NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
 # The machine sets its scale back to zero about 5 s into a brew, with water
 # already in the cup (docs/S3-RESULTS.md: 5.6 g, 4.95 g and 5.7 g were lost
 # that way). A reading that falls by more than REZERO_DROP_G to within
-# REZERO_BAND_G of zero is taken as such a reset, and what was on the scale
-# is carried over. A lifted cup reads far below zero, so it is not mistaken
-# for one.
+# REZERO_BAND_G of zero, and is not followed by one below that band, is taken
+# as such a reset, and what was on the scale is carried over. The second
+# reading is there for a cup being lifted, which is expected to pass through
+# zero on its way down; what a lifted cup reads has not been measured on
+# this machine.
 REZERO_DROP_G = 2.0
 REZERO_BAND_G = (-0.5, 1.5)
 # After the hub sends a start, any other activity value counts as a brew for
@@ -219,7 +221,8 @@ class Machine:
             elif cmd == CMD_ABANDONED:
                 self._close_brew("abandoned")
             elif "activity" in decoded and activity == _FINISHED:
-                self._close_brew("finished")        # the 40512 was missed
+                # The 40512 was missed, or the hub joined just after a brew.
+                self._close_brew("stopped" if self._brew["stop_sent"] else "finished")
             elif "activity" in decoded and activity in _HOME:
                 self._close_brew("stopped" if self._brew["stop_sent"] else "home")
             elif "activity" in decoded and activity == _ASLEEP:
@@ -262,7 +265,7 @@ class Machine:
             "as_sent": held.get("as_sent"),
             "samples": {"weight": [], "water": []}, "events": [],
             # [seconds, grams carried over] for each scale reset seen.
-            "rezeroed": [], "_raw_weight": None, "_carry": 0.0,
+            "rezeroed": [], "_raw_weight": None, "_pending": None, "_carry": 0.0,
             "_t0": time.monotonic(),
         }
         # The last water reading belongs to whatever came before this brew.
@@ -275,13 +278,18 @@ class Machine:
         """The weight in the cup since the brew opened, across the machine's
         own reset of its scale."""
         brew = self._brew
-        last = brew["_raw_weight"]
-        if (last is not None and last - raw > REZERO_DROP_G
-                and REZERO_BAND_G[0] <= raw <= REZERO_BAND_G[1]):
-            brew["_carry"] += last
-            brew["rezeroed"].append(
-                [round(time.monotonic() - brew["_t0"], 2), round(last, 2)])
+        last, pending = brew["_raw_weight"], brew["_pending"]
         brew["_raw_weight"] = raw
+        if pending is not None:
+            brew["_pending"] = None
+            if raw >= REZERO_BAND_G[0]:         # it stayed at zero or rose: a reset
+                brew["_carry"] += pending
+                brew["rezeroed"].append(
+                    [round(time.monotonic() - brew["_t0"], 2), round(pending, 2)])
+        elif (last is not None and last - raw > REZERO_DROP_G
+                and REZERO_BAND_G[0] <= raw <= REZERO_BAND_G[1]):
+            brew["_pending"] = last
+            return round(last + brew["_carry"], 2)      # held for this one reading
         return round(raw + brew["_carry"], 2)
 
     def _record(self, decoded: dict) -> None:

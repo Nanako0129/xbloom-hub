@@ -42,9 +42,9 @@ const DOT_ICONS = {
   curve: "0000000 0000111 0001000 0010000 0100000 1000000 1111111",
   prompt: "0000000 1000000 0100000 0010000 0100000 1000111 0000000",
   apart: "0000000 0000000 1110111 1010101 1110111 0000000 0000000",
+  // A cup, for a finished brew; nine by nine, and the two top rows are steam.
+  cup: "001010100 010101000 000000000 111111100 100000111 100000101 100000111 010001000 001110000",
 };
-// The cup the machine shows when a brew is done; the two top rows are steam.
-const CUP = "001010100 010101000 000000000 111111100 100000111 100000101 100000111 010001000 001110000";
 const DOT_ICON_R = 0.4;      // of a 1-unit cell: dots stay apart at 20 px, still read as filled
 
 // Icons for actions, on a 24-unit grid. Strokes unless marked solid.
@@ -61,11 +61,11 @@ const ICONS = {
 
 function iconSvg(name) {
   if (DOT_ICONS[name]) {
-    const lit = [];
-    DOT_ICONS[name].split(" ").forEach((row, y) => [...row].forEach((bit, x) => {
-      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R }));
+    const lit = [], rows = DOT_ICONS[name].split(" ");
+    rows.forEach((row, y) => [...row].forEach((bit, x) => {
+      if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R, class: name === "cup" && y < 2 ? `steam s${y}` : "" }));
     }));
-    return svg("svg", { viewBox: "0 0 7 7", class: "matrix", "aria-hidden": "true" }, lit);
+    return svg("svg", { viewBox: `0 0 ${rows[0].length} ${rows.length}`, class: `matrix ${name}`, "aria-hidden": "true" }, lit);
   }
   return svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" }, (ICONS[name] || []).map((part) =>
     Array.isArray(part) ? svg("path", { d: part[0], class: "solid" }) : svg("path", { d: part })));
@@ -410,22 +410,16 @@ function lastBrewCard() {
     chart([{ cls: "water", points: water }, { cls: "coffee", points: weight }], [], LEGEND()));
 }
 
-function cupDots() {
-  const lit = [];
-  CUP.split(" ").forEach((row, y) => [...row].forEach((bit, x) => {
-    if (bit === "1") lit.push(svg("circle", { cx: x + 0.5, cy: y + 0.5, r: DOT_ICON_R, class: y < 2 ? `steam s${y}` : "" }));
-  }));
-  return svg("svg", { viewBox: "0 0 9 9", class: "cup", "aria-hidden": "true" }, lit);
-}
-
 // Just after a brew, as the machine does it: the final numbers, and the cup.
 function viewFinished() {
   fetchLastBrew();
-  if (!lastBrew) return [h("div", { class: "done" }, cupDots(), h("h1", {}, t("home.finished")))];
+  const title = h("div", { class: "done" }, iconSvg("cup"), h("h1", {}, t("home.finished")));
+  // Until the record of the brew this page just watched has arrived, show no numbers.
+  if (!lastBrew || (live.id && lastBrew.id !== live.id)) return [title];
   const last = (points) => (points.length ? points[points.length - 1][1] : null);
   const water = lastBrew.samples.water, weight = lastBrew.samples.weight;
   return [
-    h("div", { class: "done" }, cupDots(), h("h1", {}, t("home.finished"))),
+    title,
     h("div", { class: "muted" }, recordName(lastBrew)),
     h("div", { class: "readouts" },
       readout(clock(lastBrew.duration_s || 0), t("readout.time"), null),
@@ -466,7 +460,7 @@ function viewHome() {
     h("div", { class: "tiles" },
       tile("list", t("tab.recipes"), { href: "#/recipes" }),
       tile("curve", t("tab.history"), { href: "#/history" }),
-      tile("apart", t("action.release"), { disabled: busy, on: { click: () => act(() => api("POST", "/api/link/release")) } })),
+      tile("apart", t("action.release"), { disabled: busy, on: { click: confirmRelease } })),
     h("div", { class: "cols" },
       h("div", {},
         h("h2", {}, t("home.pick")),
@@ -582,6 +576,11 @@ async function confirmStart(info) {
 
 async function confirmStop() {
   if (await ask(t("stop.title"), [h("p", {}, t("stop.body"))], t("action.stop"), true)) act(() => api("POST", "/api/machine/stop"));
+}
+
+// On the home screen this sits beside two links, so it asks first.
+async function confirmRelease() {
+  if (await ask(t("release.title"), [h("p", {}, t("release.body"))], t("action.release"), false)) act(() => api("POST", "/api/link/release"));
 }
 
 function ask(title, body, yes, danger) {

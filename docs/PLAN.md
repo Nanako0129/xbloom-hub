@@ -439,7 +439,8 @@ while activity is 36. On the machine that is about 25 s. A load waits for
 **Readings are corrected where they enter.** Water arrives in thousandths
 of a millilitre and is divided by 1000. The machine sets its scale to zero
 about 5 s into a brew; a reading that falls by more than 2 g to within
--0.5 to 1.5 g of zero is taken as that reset and the weight before it is
+-0.5 to 1.5 g of zero, and is not followed by one below that, is taken as
+that reset and the weight before it is
 carried over, so the record holds the weight in the cup since the brew
 opened. Each reset is listed in the record under `rezeroed`.
 

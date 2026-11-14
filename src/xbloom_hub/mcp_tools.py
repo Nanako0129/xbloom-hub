@@ -78,7 +78,8 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
                              "weight_g is "
                              "the scale's reading after its last tare and is 0 with a cup on "
                              "it once a recipe has been loaded; it does not show whether a "
-                             "cup is present.")
+                             "cup is present. While brewing it is the weight in the cup "
+                             "since the brew began; the brew's record keeps that figure.")
     async def machine_state() -> dict:
         return {"ok": True, **machine.snapshot()}
 

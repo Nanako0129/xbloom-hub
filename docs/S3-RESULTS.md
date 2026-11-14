@@ -67,6 +67,13 @@ after the brew opened):
   step 4 measures it on a real recipe.
 - The 40512 came 6 to 8 s after the pour ended (13.3, 15.3 and 15.4 s).
 
+## Known and left
+
+- A hub that connects in the 5 s a machine still reports 35 after a brew
+  opens a record for it, which closes as finished when 36 arrives.
+- After a brew closes, the state's `weight_g` is the scale's own reading
+  again, lower than the record's last weight by what was carried over.
+
 ## Not observed
 
 - No 9002 or 9008 (cup on, cup off) arrived during the run. Whether the cup

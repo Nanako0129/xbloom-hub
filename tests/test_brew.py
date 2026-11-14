@@ -698,7 +698,8 @@ def test_the_scale_reset_during_a_brew_is_carried_over(tmp_path):
         for grams in (0.0, 4.53, 5.61, 0.0, 1.54, 16.9):
             raw({"cmd": 20501, "weight_g": grams})
         assert machine.snapshot()["weight_g"] == 22.51
-        raw({"cmd": 20501, "weight_g": -180.0})              # the cup is lifted: not a reset
+        raw({"cmd": 20501, "weight_g": 0.3})                 # a reading near zero, then far
+        raw({"cmd": 20501, "weight_g": -180.0})              # below it: not a reset (values invented)
         raw({"cmd": 20501, "weight_g": 16.9})
         raw({"cmd": 40512})
         record = brews.get(brews.list()[0]["id"])
