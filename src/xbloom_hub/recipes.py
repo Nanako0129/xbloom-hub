@@ -206,6 +206,26 @@ def as_sent(recipe: dict) -> dict:
             "pour_volumes_ml": volumes, "total_ml": sum(volumes)}
 
 
+def plan(recipe: dict) -> dict:
+    """When each pour should start and end, from the recipe's own numbers:
+    volume / flow rate for the pour, then its pause. Arithmetic, not
+    measurement: whether the machine keeps its nominal flow rate, and what a
+    change of temperature costs, is what a brew record is compared against
+    this to find out. Grinding time is not included; zero is the first pour.
+    """
+    volumes = as_sent(recipe)["pour_volumes_ml"]
+    pours, clock, total = [], 0.0, 0
+    for pour, volume in zip(recipe["pours"], volumes):
+        duration = volume / float(pour["flow_rate"])
+        total += volume
+        pours.append({"start_s": round(clock, 1), "end_s": round(clock + duration, 1),
+                      "volume_ml": volume, "cumulative_ml": total,
+                      "temperature_c": pour["temperature_c"], "pause_s": pour["pause_s"]})
+        clock += duration + pour["pause_s"]
+    return {"pours": pours, "total_ml": total,
+            "pour_end_s": pours[-1]["end_s"] if pours else 0.0}
+
+
 def to_machine(recipe: dict) -> dict:
     """The dictionary xbloom-py's encoder reads, from a `checked()` recipe only."""
     return {
@@ -245,6 +265,32 @@ class RecipeStore:
                         "name": clean_text(name)[:NAME_MAX] if isinstance(name, str) else None})
         return out
 
+    def library(self) -> list[dict]:
+        """Each recipe with what a card shows: dose, ratio, water as sent, the
+        pours' volumes and temperatures, and the planned length. A file that
+        does not pass the check is listed by name with `valid: false`."""
+        out = []
+        for entry in self.list():
+            try:
+                recipe = self.get(entry["slug"])
+                if recipe is None:              # removed since it was listed
+                    continue
+                timeline = plan(recipe)
+                out.append({
+                    **entry, "valid": True, "dose_g": recipe["dose_g"], "ratio": recipe["ratio"],
+                    "grind": recipe["grind"], "grind_size": recipe["grind_size"],
+                    "total_ml": timeline["total_ml"], "pour_end_s": timeline["pour_end_s"],
+                    "pours": [{"volume_ml": p["volume_ml"], "temperature_c": p["temperature_c"]}
+                              for p in timeline["pours"]],
+                    "bean": (recipe.get("meta") or {}).get("bean") or None,
+                })
+            except (RecipeInvalid, BadSlug):
+                # A file that fails the check, or one whose name is not a
+                # slug (hand-made files are expected): shown, not usable, and
+                # never a reason for the whole library to fail.
+                out.append({**entry, "valid": False})
+        return out
+
     def get(self, slug: str) -> dict | None:
         """The checked recipe, or None. A file that no longer passes is refused."""
         path = self._path(slug)
@@ -256,10 +302,14 @@ class RecipeStore:
             raise RecipeInvalid({"file": "not_yaml"}) from err
         return checked(data)
 
-    def wire(self, slug: str) -> dict | None:
-        """The stored recipe in the encoder's shape, or None. What a load sends."""
+    def for_load(self, slug: str) -> dict | None:
+        """What a load needs for the stored recipe, or None: the dictionary the
+        encoder reads (`wire`), plus the recipe as checked and as it will be
+        sent, which travel with the brew record."""
         recipe = self.get(slug)
-        return to_machine(recipe) if recipe is not None else None
+        if recipe is None:
+            return None
+        return {"wire": to_machine(recipe), "recipe": recipe, "as_sent": as_sent(recipe)}
 
     def put(self, slug: str, recipe: object) -> dict:
         path = self._path(slug)

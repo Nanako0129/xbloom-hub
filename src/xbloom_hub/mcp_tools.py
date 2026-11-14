@@ -73,7 +73,8 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
             return _failure(err)
 
     @server.tool(description="The machine's current state: offline, idle, asleep, armed "
-                             "(a recipe is loaded and waiting), busy or released. weight_g is "
+                             "(a recipe is loaded and waiting), brewing, busy or released. "
+                             "weight_g is "
                              "the scale's reading after its last tare and is 0 with a cup on "
                              "it once a recipe has been loaded; it does not show whether a "
                              "cup is present.")
@@ -89,7 +90,7 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
                 return {"ok": False, "error": "not_found"}
 
             # Raises unless the machine reports it is waiting, so ok means armed.
-            await machine.load(slug, lambda: store.wire(slug))
+            await machine.load(slug, lambda: store.for_load(slug))
         except _EXPECTED as err:
             return _failure(err)
         # machine.load() returns a one-time start ticket. It stays in the hub.

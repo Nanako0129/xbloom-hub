@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#161617">
+<title>xbloom hub</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand">xbloom hub</div>
+    <nav id="tabs" data-i18n-label="tab.label">
+      <a href="#/" data-tab="home"><span class="icon" data-icon="drop"></span><span data-i18n="tab.home"></span></a>
+      <a href="#/recipes" data-tab="recipes"><span class="icon" data-icon="list"></span><span data-i18n="tab.recipes"></span></a>
+      <a href="#/history" data-tab="history"><span class="icon" data-icon="clock"></span><span data-i18n="tab.history"></span></a>
+      <a href="#/console" data-tab="console"><span class="icon" data-icon="terminal"></span><span data-i18n="tab.console"></span></a>
+    </nav>
+    <section id="machine" class="card" aria-live="polite"></section>
+  </aside>
+
+  <div id="main">
+    <header id="status" aria-live="polite">
+      <span id="status-lamp" class="lamp"></span>
+      <span id="status-text" data-i18n="status.connecting"></span>
+      <span id="status-detail"></span>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <div id="confirm-body"></div>
+    <div class="actions">
+      <button value="no" class="quiet" id="confirm-no"></button>
+      <button value="yes" id="confirm-yes"></button>
+    </div>
+  </form>
+</dialog>
+
+<script src="i18n.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
