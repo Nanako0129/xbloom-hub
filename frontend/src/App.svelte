@@ -10,6 +10,9 @@
   import History from "./pages/History.svelte";
   import Brew from "./pages/Brew.svelte";
   import Compare from "./pages/Compare.svelte";
+  import Recipes from "./pages/Recipes.svelte";
+  import Recipe from "./pages/Recipe.svelte";
+  import RecipeEdit from "./pages/RecipeEdit.svelte";
 
   listen();
 
@@ -63,6 +66,18 @@
       {#key route.current.id}<Brew id={route.current.id} />{/key}
     {:else if route.current.name === "history"}
       <History />
+    {:else if route.current.name === "recipes"}
+      {#key route.hash}
+        {#if route.current.id === "new"}
+          <RecipeEdit slug={null} from={route.current.sub ?? null} />
+        {:else if route.current.id && route.current.sub === "edit"}
+          <RecipeEdit slug={route.current.id} from={null} />
+        {:else if route.current.id}
+          <Recipe slug={route.current.id} />
+        {:else}
+          <Recipes />
+        {/if}
+      {/key}
     {:else if route.current.name === "compare"}
       {#key route.hash}<Compare ids={route.current.ids ?? []} />{/key}
     {:else}

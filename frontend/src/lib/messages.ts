@@ -4,6 +4,8 @@ export const LANGUAGE_NAMES: Record<string, string> = { "zh-Hant": "繁體中文
 
 export const MESSAGES: Record<string, Record<string, string>> = {
   "zh-Hant": {
+    "next.load_there": "到現行版本載入或刪除", "edit.earlier": "往前移", "edit.later": "往後移",
+    "edit.preview": "預覽：約 {time} 注完，共 {total} ml",
     "chart.hint": "把游標移到圖上看數值；按住 ⌘／Ctrl 滾動或雙指縮放；拖下方滑桿移動；雙擊還原。",
     "next.elsewhere": "這一頁還在搬到新版介面，目前請用現行版本。", "next.open_current": "在現行版本開啟這一頁",
     "tab.home": "現在", "tab.recipes": "配方", "tab.history": "紀錄", "tab.console": "主控台", "tab.label": "主要分頁",
@@ -25,7 +27,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "error.bad_ticket": "啟動憑證已失效。請取消後重新載入。",
     "error.no_cup": "機器回報杯子被拿走了。放回杯子再試。",
     "error.recipe_is_loaded": "這份配方正載入在機器上，先取消載入。",
-    "error.recipe_invalid": "配方內容不符合機器的限制。",
+    "error.recipe_invalid": "配方內容不符合機器的限制。", "error.recipe_exists": "這個代號已經有配方在用。",
     "error.machine_refused": "機器拒絕了這個指令。",
     "error.machine_unanswered": "機器沒有回應。請看機器螢幕確認狀態。",
     "error.cancel_failed": "機器沒有回應取消。",
@@ -111,6 +113,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
   },
 
   en: {
+    "next.load_there": "Load or delete on the current dashboard", "edit.earlier": "Move earlier", "edit.later": "Move later",
+    "edit.preview": "Preview: pours end at about {time}, {total} ml in all",
     "chart.hint": "Point at the chart to read it; pinch or Ctrl-scroll to zoom, drag the slider below to move, double-click to reset.",
     "next.elsewhere": "This page has not moved to the new dashboard yet; use the current one.", "next.open_current": "Open this page on the current dashboard",
     "tab.home": "Now", "tab.recipes": "Recipes", "tab.history": "History", "tab.console": "Console", "tab.label": "Main sections",
@@ -132,7 +136,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "error.bad_ticket": "The start ticket is no longer valid. Cancel and load again.",
     "error.no_cup": "The machine reports the cup was taken off. Put it back and try again.",
     "error.recipe_is_loaded": "This recipe is loaded on the machine. Cancel the load first.",
-    "error.recipe_invalid": "The recipe is outside the machine's limits.",
+    "error.recipe_invalid": "The recipe is outside the machine's limits.", "error.recipe_exists": "A recipe already uses this id.",
     "error.machine_refused": "The machine refused the command.",
     "error.machine_unanswered": "The machine did not answer. Check its display.",
     "error.cancel_failed": "The machine did not answer the cancel.",

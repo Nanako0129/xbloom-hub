@@ -76,9 +76,10 @@ def test_the_console_reads_and_switches_language(next_ui, hub):
 
 
 def test_a_page_not_moved_yet_links_to_the_current_one(next_ui, hub):
-    next_ui.evaluate("location.hash = '#/recipes/short'")
+    next_ui.evaluate("location.hash = '#/history'")              # leave home, then come back to it
+    next_ui.evaluate("location.hash = '#/'")
     link = next_ui.locator("#view a")
-    expect(link).to_have_attribute("href", "/#/recipes/short")
+    expect(link).to_have_attribute("href", "/#/")
 
 
 def test_both_dashboards_are_served_with_the_policy(hub):
@@ -151,3 +152,77 @@ def test_a_record_reads_under_the_pointer_zooms_and_hides_a_line(next_ui, hub):
 def test_a_record_that_is_not_there_says_so(next_ui, hub):
     next_ui.evaluate("location.hash = '#/history/20991231-000000-zzzz'")
     expect(next_ui.locator("#view .notice.bad")).to_be_visible()
+
+
+# ---- step 4: recipes, a recipe, the editor -------------------------------------
+
+def test_the_recipe_list_and_a_recipe_show_strangers_text_as_text(next_ui, hub):
+    from .conftest import HOSTILE, RECIPES
+    next_ui.evaluate("location.hash = '#/recipes'")
+    expect(next_ui.locator("#view .recipe")).to_have_count(len(RECIPES))
+    expect(next_ui.get_by_text(HOSTILE).first).to_be_visible()
+    _no_markup(next_ui)
+    next_ui.evaluate("location.hash = '#/recipes/hostile'")
+    expect(next_ui.get_by_text(RECIPES["hostile"]["meta"]["roaster"])).to_be_visible()
+    expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
+    expect(next_ui.locator("#view a[href^='javascript']")).to_have_count(0)
+    _no_markup(next_ui)
+    # Loading is not on /next/ yet: the page sends it to the current dashboard.
+    expect(next_ui.locator("#view a[href='/#/recipes/hostile']")).to_have_count(1)
+    expect(next_ui.locator("#view button")).to_have_count(1)        # the chart's legend only
+
+
+def test_only_an_https_source_is_a_link_on_next(next_ui, hub):
+    from .conftest import RECIPES
+    for slug in ("src-data", "src-upper"):
+        next_ui.evaluate(f"location.hash = '#/recipes/{slug}'")
+        expect(next_ui.get_by_text(RECIPES[slug]["meta"]["source"])).to_be_visible()
+        expect(next_ui.locator("#view dd a")).to_have_count(0)
+    next_ui.evaluate("location.hash = '#/recipes/src-ok'")
+    link = next_ui.locator("#view dd a[href='https://example.com/ok']")
+    expect(link).to_have_count(1)
+    assert set(link.get_attribute("rel").split()) >= {"noopener", "noreferrer"}
+
+
+def test_the_editor_keeps_typing_through_a_state_change_and_saves(next_ui, hub):
+    next_ui.evaluate("location.hash = '#/recipes/new'")
+    texts = next_ui.locator(".form input[type='text']")
+    expect(texts.first).to_be_visible()
+    texts.nth(0).fill("Next editor test")
+    texts.nth(1).fill("short")
+    # The machine changes state while someone types: nothing typed is lost.
+    assert hub.api("POST", "/api/machine/load", {"slug": "long"}).status_code == 200
+    expect(next_ui.locator("#machine .state")).to_contain_text("Loaded")
+    assert texts.nth(0).input_value() == "Next editor test"
+    next_ui.get_by_role("button", name="Save").click()
+    expect(next_ui.get_by_text("A recipe already uses this id.")).to_be_visible()
+    assert hub.api("GET", "/api/recipes/short").json()["name"] == "Short test"
+    texts.nth(1).fill("next-editor-test")
+    next_ui.get_by_role("button", name="Save").click()
+    next_ui.wait_for_function("() => location.hash === '#/recipes/next-editor-test'")
+    saved = hub.api("GET", "/api/recipes/next-editor-test").json()
+    assert saved["name"] == "Next editor test" and len(saved["pours"]) == 2
+
+
+def test_the_editor_previews_and_reorders_pours(next_ui, hub):
+    next_ui.evaluate("location.hash = '#/recipes/new/short'")
+    pours = next_ui.locator(".pour-edit")
+    expect(pours).to_have_count(1)
+    next_ui.get_by_role("button", name="Add a pour").click()
+    expect(pours).to_have_count(2)
+    heading = next_ui.locator("#view h2", has_text="Preview")
+    before = heading.inner_text()
+    pours.nth(1).locator("input[type='number']").first.fill("50")
+    expect(heading).not_to_have_text(before)                      # the preview follows the typing
+    expect(next_ui.locator("#edit-total")).to_contain_text("75 ml")
+    pours.nth(1).get_by_role("button", name="Move earlier").click()
+    assert pours.nth(0).locator("input[type='number']").first.input_value() == "50"
+    assert pours.nth(1).locator("input[type='number']").first.input_value() == "25"
+
+
+def test_editing_an_existing_recipe_loads_it(next_ui, hub):
+    next_ui.evaluate("location.hash = '#/recipes/long/edit'")
+    expect(next_ui.locator(".pour-edit")).to_have_count(1)
+    assert next_ui.locator(".form input[type='text']").first.input_value() == "Long test"
+    # An existing recipe keeps its id: no id field.
+    expect(next_ui.locator(".form input[placeholder='my-recipe']")).to_have_count(0)

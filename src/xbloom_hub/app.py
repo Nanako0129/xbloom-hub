@@ -155,7 +155,8 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         # After the body is read: nothing may await between this check and
         # the write, or a load could finish in the gap.
         errors.guard_loaded(machine, slug)
-        return JSONResponse(store.put(slug, body))
+        # ?create=1: a new recipe, refused if the slug has a file already.
+        return JSONResponse(store.put(slug, body, create=request.query_params.get("create") == "1"))
 
     async def load(request):
         slug = (await _json(request)).get("slug")

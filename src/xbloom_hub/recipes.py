@@ -35,6 +35,10 @@ class BadSlug(ValueError):
     pass
 
 
+class RecipeExists(ValueError):
+    """A recipe was to be created under a slug that already has a file."""
+
+
 class RecipeInvalid(ValueError):
     def __init__(self, errors: dict[str, str]) -> None:
         super().__init__(f"recipe invalid: {errors}")
@@ -311,11 +315,22 @@ class RecipeStore:
             return None
         return {"wire": to_machine(recipe), "recipe": recipe, "as_sent": as_sent(recipe)}
 
-    def put(self, slug: str, recipe: object) -> dict:
+    def put(self, slug: str, recipe: object, create: bool = False) -> dict:
+        """Store a recipe. With create, only when no file of that name exists,
+        valid or not: a new recipe never replaces one, not even a hand-made
+        file that fails the check. Exclusive creation, so two creators cannot
+        both win."""
         path = self._path(slug)
         recipe = checked(recipe)
-        path.write_text(yaml.safe_dump(recipe, sort_keys=False, allow_unicode=True),
-                        encoding="utf-8")
+        text = yaml.safe_dump(recipe, sort_keys=False, allow_unicode=True)
+        if create:
+            try:
+                with path.open("x", encoding="utf-8") as handle:
+                    handle.write(text)
+            except FileExistsError as err:
+                raise RecipeExists(slug) from err
+        else:
+            path.write_text(text, encoding="utf-8")
         return recipe
 
     def delete(self, slug: str) -> bool:
