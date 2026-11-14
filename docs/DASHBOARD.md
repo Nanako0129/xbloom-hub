@@ -1,9 +1,24 @@
 # The dashboard
 
 The hub serves a page at `/`: what the machine is doing now, the recipe
-library, past brews, and a console. It is three static files and a dictionary
-(`src/xbloom_hub/static/`), with no build step and nothing loaded from
-elsewhere.
+library, past brews, and a console. It is built from `frontend/` (Svelte 5,
+TypeScript, ECharts, Vite) into `src/xbloom_hub/web/`, and nothing is loaded
+from elsewhere.
+
+## Building it
+
+Every npm command runs in a throwaway container, never on the host
+(docs/PLAN.md, S3c): it needs Docker (OrbStack on the Mac).
+
+```sh
+frontend/npm.sh ci            # once, and after the lock file changes
+frontend/npm.sh run build     # into src/xbloom_hub/web/
+frontend/npm.sh run check     # type-check
+frontend/npm.sh run watch     # rebuild on every change, for a simulator hub
+```
+
+The hub refuses to start without a build and says how to make one. A build
+made while the hub runs is served at once.
 
 ## Opening it
 
@@ -79,7 +94,7 @@ load and reads zero with a cup on it.
 
 ## Languages
 
-Interface text lives in `static/i18n.js`, one dictionary per language with the
+Interface text lives in `frontend/src/lib/messages.ts`, one dictionary per language with the
 same keys. Traditional Chinese and English are included. The page picks from
 the browser's languages and remembers a choice made in the console.
 

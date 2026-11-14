@@ -20,7 +20,7 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import check_allowed_hosts, create_app, read_token
+from .app import BUILD_COMMAND, WEB_DIR, check_allowed_hosts, create_app, read_token
 from .brews import BrewStore
 from .machine import Machine
 from .recipes import RecipeStore
@@ -34,6 +34,10 @@ def _proxy_psk(env) -> str:
 
 def main() -> None:
     env = os.environ
+    if not (WEB_DIR / "index.html").is_file():
+        # Never an empty site: say what to do instead.
+        raise SystemExit(f"the dashboard is not built ({WEB_DIR} has no index.html); "
+                         f"from the repository, run: {BUILD_COMMAND}")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     token = read_token(env)
     data = Path(env.get("XBLOOM_DATA_DIR", "data"))

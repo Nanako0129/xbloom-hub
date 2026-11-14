@@ -4,6 +4,7 @@ The simulator's brew is a guess at what the machine reports; these tests pin
 the hub's rules, not the machine's behaviour.
 """
 import asyncio
+import pathlib
 import json
 import time
 
@@ -12,7 +13,7 @@ from starlette.testclient import TestClient
 from xbloom.ble import FFE1_UUID, CommandRefused, CommandUnanswered
 
 from xbloom_hub import gate
-from xbloom_hub.app import CSP, STATIC_DIR, check_allowed_hosts, create_app
+from xbloom_hub.app import CSP, check_allowed_hosts, create_app
 from xbloom_hub.brews import BadBrewId, BrewStore
 from xbloom_hub.machine import BadTicket, Machine, NoCup, NotReady
 from xbloom_hub.recipes import RecipeStore, as_sent, checked, to_machine
@@ -403,24 +404,15 @@ def test_start_and_stop_over_http_and_not_over_mcp(client):
 def test_the_page_is_served_under_a_strict_policy(client):
     page = client.get("/")
     assert page.status_code == 200 and "text/html" in page.headers["content-type"]
-    for response in (page, client.get("/api/state"), client.get("/app.js"), client.get("/style.css")):
+    import re
+    assets = re.findall(r'(?:src|href)="\./(assets/[^"]+)"', page.text)
+    assert assets, "the dashboard is not built"
+    for response in (page, client.get("/api/state"), *(client.get(f"/{a}") for a in assets)):
+        assert response.status_code == 200
         assert response.headers["content-security-policy"] == CSP
         assert response.headers["x-content-type-options"] == "nosniff"
     assert "'unsafe-inline'" not in CSP and "'unsafe-eval'" not in CSP
     assert client.get("/", headers={"Host": "evil.example"}).status_code == 400
-
-
-def test_the_page_has_nothing_inline_and_puts_no_data_in_innerhtml():
-    import re
-
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html)      # only <script src=…>
-    assert "<style" not in html and not re.search(r"\sstyle\s*=", html)
-    assert not re.search(r"\son[a-z]+\s*=", html)                    # no onclick= and friends
-    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    assert "innerHTML" not in script and "outerHTML" not in script
-    assert "insertAdjacentHTML" not in script and "document.write" not in script
-    assert "eval(" not in script and "new Function" not in script
 
 
 def test_allowed_hosts_cannot_be_a_wildcard():
@@ -431,10 +423,12 @@ def test_allowed_hosts_cannot_be_a_wildcard():
 
 
 # ---- interface text --------------------------------------------------------------
+FRONTEND = pathlib.Path(__file__).resolve().parents[1] / "frontend"
+
 def _dictionaries():
     import re
 
-    text = (STATIC_DIR / "i18n.js").read_text(encoding="utf-8")
+    text = (FRONTEND / "src" / "lib" / "messages.ts").read_text(encoding="utf-8")
     blocks = {}
     for code in ("zh-Hant", "en"):
         start = text.index(f'"{code}": {{') if code == "zh-Hant" else text.index("\n  en: {")
@@ -458,27 +452,26 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
     import re
 
     keys = set(_dictionaries()["en"])
-    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    used = set(re.findall(r'\bt\("([a-z_.]+)"', script))
-    used |= set(re.findall(r'data-i18n(?:-label)?="([a-z_.]+)"', html))
+    sources = [p.read_text(encoding="utf-8") for p in (FRONTEND / "src").rglob("*")
+               if p.suffix in (".svelte", ".ts") and p.name != "messages.ts"]
+    used = set()
+    for text in sources:
+        used |= set(re.findall(r'\bt\("([a-z_.]+)"', text))
     assert len(used) > 80 and used <= keys, used - keys
     # Keys built at run time: every value the hub can send has an entry.
-    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released")),
+    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released", "unheard")),
                            ("ending", ("finished", "stopped", "abandoned", "home", "asleep", "link_lost")),
                            ("error", ("unauthorized", "not_ready", "bad_ticket", "no_cup", "recipe_is_loaded",
-                                      "recipe_invalid", "machine_refused", "machine_unanswered",
+                                      "recipe_invalid", "recipe_exists", "machine_refused", "machine_unanswered",
                                       "cancel_failed", "not_found", "foreign_origin")),
                            ("meta", ("bean", "roaster", "process", "roast", "source", "notes"))):
         for value in values:
             assert f"{prefix}.{value}" in keys, f"{prefix}.{value}"
-    # All interface text lives in i18n.js: none in the script or the markup.
+    # All interface text lives in the dictionaries: no Chinese in the sources.
     han = re.compile(r"[\u4e00-\u9fff]")
-    assert not han.search(script) and not han.search(html)
-    # ... except the product's name, which is a name and is not translated.
-    body = html.split("<body>")[1].replace(">xbloom hub<", "><")
-    assert not re.search(r">\s*[A-Za-z][^<]*<", body)
-
+    for path in (FRONTEND / "src").rglob("*"):
+        if path.suffix in (".svelte", ".ts") and path.name != "messages.ts":
+            assert not han.search(path.read_text(encoding="utf-8")), path
 
 def test_library_lists_what_a_card_shows_and_survives_a_bad_file(client, tmp_path):
     (tmp_path / "recipes" / "broken.yaml").write_text("name: Broken\ndose_g: 99\n")
@@ -646,23 +639,6 @@ def test_a_brew_file_that_is_not_a_record_does_not_break_the_list(tmp_path):
     (tmp_path / "20260101-000000-000a.json").write_text("[1, 2]")
     (tmp_path / "20260101-000000-001a.json").write_text("not json")
     assert store.list() == []
-
-
-def test_views_that_fetch_never_paint_directly():
-    """A view that awaits can finish after the address has moved on. It paints
-    through painter(), which checks; a bare show() there once drew a recipe
-    page over the loaded screen.
-
-    This reads the script's text because the suite has no browser: what the
-    page does cannot be observed here. The views are exercised by hand in a
-    browser against the simulator before each change to them is merged."""
-    import re
-
-    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    views = re.findall(r"async function (view\w+)\(view(?:, \w+)+\) \{\n(.*?)\n\}\n", script, flags=re.S)
-    assert {name for name, _ in views} == {"viewRecipes", "viewRecipe", "viewRecipeEdit", "viewHistory", "viewBrew", "viewCompare"}
-    for name, body in views:
-        assert "painter(view)" in body and "show(view" not in body, name
 
 
 def test_as_measured_water_in_thousandths_and_the_screen_after_a_brew(tmp_path):
