@@ -11,7 +11,10 @@
 
   $effect(() => {
     record = null; failed = "";
-    api<BrewRecord>("GET", `/api/brews/${encodeURIComponent(id)}`).then((r) => { record = r; }).catch((error) => { failed = error.message; });
+    let current = true;
+    api<BrewRecord>("GET", `/api/brews/${encodeURIComponent(id)}`)
+      .then((r) => { if (current) record = r; }).catch((error) => { if (current) failed = error.message; });
+    return () => { current = false; };
   });
 
   const starts = $derived(record ? pourStarts(record) : []);
@@ -49,8 +52,8 @@
           <dt>{t("record.time")}</dt><dd class="num">{when(record.started_at)}</dd>
           <dt>{t("record.result")}</dt><dd>{endingText(record.reason)}</dd>
           <dt>{t("record.duration")}</dt><dd class="num">{record.duration_s == null ? "-" : clock(record.duration_s)}</dd>
-          <dt>{t("record.water")}</dt><dd class="num">{last(record.samples.water) ?? "-"} ml</dd>
-          <dt>{t("record.coffee")}</dt><dd class="num">{last(record.samples.weight) ?? "-"} g</dd>
+          <dt>{t("record.water")}</dt><dd class="num">{last(record.samples.water) === null ? "-" : `${last(record.samples.water)} ml`}</dd>
+          <dt>{t("record.coffee")}</dt><dd class="num">{last(record.samples.weight) === null ? "-" : `${last(record.samples.weight)} g`}</dd>
           <dt>{t("record.started")}</dt><dd>{record.hub_started ? t("record.started_here") : t("record.started_machine")}</dd>
         </dl>
       </section>

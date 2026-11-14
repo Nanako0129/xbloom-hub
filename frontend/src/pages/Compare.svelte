@@ -12,8 +12,10 @@
   $effect(() => {
     records = null; failed = "";
     if (ids.length < 2) { location.hash = "#/history"; return; }
+    let current = true;           // an answer for ids that are no longer shown is dropped
     Promise.all(ids.slice(0, 2).map((id) => api<BrewRecord>("GET", `/api/brews/${encodeURIComponent(id)}`)))
-      .then((list) => { records = list; }).catch((error) => { failed = error.message; });
+      .then((list) => { if (current) records = list; }).catch((error) => { if (current) failed = error.message; });
+    return () => { current = false; };
   });
 
   // Both brews aligned on their first pour.

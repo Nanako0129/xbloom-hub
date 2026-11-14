@@ -64,9 +64,9 @@
     {:else if route.current.name === "history"}
       <History />
     {:else if route.current.name === "compare"}
-      <Compare ids={route.current.ids ?? []} />
+      {#key route.hash}<Compare ids={route.current.ids ?? []} />{/key}
     {:else}
-      <Elsewhere title={t(`tab.${route.current.name === "compare" ? "history" : route.current.name}`)} />
+      <Elsewhere title={t(`tab.${current}`)} />
     {/if}
   </main>
 </div>

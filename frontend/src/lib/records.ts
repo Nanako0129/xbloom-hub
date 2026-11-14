@@ -19,7 +19,7 @@ export interface BrewRecord extends BrewSummary {
 export const pourStarts = (record: BrewRecord): number[] =>
   record.events.filter((e) => e[1].cmd === 40510).map((e) => e[0]);
 export const recordName = (record: { recipe: { name: string } | null }): string =>
-  record.recipe?.name ?? t("brew.at_machine");
+  record.recipe?.name || t("brew.at_machine");
 
 // The planned water line: flat during pauses, rising during pours.
 export function planLine(plan: Plan): Point[] {

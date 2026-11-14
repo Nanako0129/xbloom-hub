@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  // The brews ticked for comparing stay ticked while the page is away.
+  let kept: string[] = [];
+</script>
+
 <script lang="ts">
   import { api } from "../lib/hub.svelte";
   import { t } from "../lib/i18n.svelte";
@@ -6,7 +11,8 @@
 
   let brews = $state<BrewSummary[] | null>(null);
   let failed = $state("");
-  let picked = $state<string[]>([]);
+  let picked = $state<string[]>(kept);
+  $effect(() => { kept = picked; });
 
   api<BrewSummary[]>("GET", "/api/brews").then((list) => { brews = list; }).catch((error) => { failed = error.message; });
 
@@ -29,7 +35,7 @@
         <input type="checkbox" aria-label={t("history.pick")} checked={picked.includes(b.id)}
           onchange={(event) => toggle(b.id, event.currentTarget.checked)} />
         <a href="#/history/{encodeURIComponent(b.id)}">
-          <span class="title">{b.recipe_name ?? t("brew.at_machine")}</span>
+          <span class="title">{b.recipe_name || t("brew.at_machine")}</span>
           <span class="sub num">{[when(b.started_at), `${b.water_ml == null ? "-" : Math.round(b.water_ml)} ml`,
             b.duration_s == null ? "" : clock(b.duration_s), endingText(b.reason)].filter(Boolean).join("   ")}</span>
         </a>

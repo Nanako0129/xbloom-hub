@@ -134,7 +134,9 @@ def test_a_record_reads_under_the_pointer_zooms_and_hides_a_line(next_ui, hub):
     text = reading.inner_text()
     assert "ml" in text and " g" in text, text                # water and coffee at that moment
     # Scroll to zoom, then a double click shows the whole brew again.
+    next_ui.keyboard.down("Control")
     next_ui.mouse.wheel(0, -400)
+    next_ui.keyboard.up("Control")
     next_ui.wait_for_timeout(300)
     next_ui.mouse.dblclick(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.4)
     # A legend key hides its line, and the reading drops it.
