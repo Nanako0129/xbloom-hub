@@ -767,6 +767,10 @@ section, one dependency. Removing them leaves S3 as it is.
 **Stops.** The live service answers differently from what the library
 expects, or asks for a login: stop, record what it answered, and put it to
 the owner; do not imitate another client or add credentials.
+If the live check shows that one rule of the table refuses most recipes (a
+ratio off the 0.5 step is the likely one: the library's own notes mention
+1:16.2), the rule is not loosened in this slice: the count is recorded and
+the choice between refusing and rounding is put to the owner.
 
 ## S0 — prove the radio path
 
