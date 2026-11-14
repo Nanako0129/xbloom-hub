@@ -364,7 +364,7 @@ def client(tmp_path):
     store = RecipeStore(tmp_path / "recipes")
     store.put("test", RECIPE)
     app = create_app(machine, store, TOKEN, ["testserver"], brews=machine._brews)
-    with TestClient(app) as c:
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
         deadline = time.monotonic() + 3
         while c.get("/api/state").json()["state"] != "idle":
             assert time.monotonic() < deadline

@@ -6,6 +6,8 @@ XBLOOM_PROXY_PSK        the proxy's Noise key (or XBLOOM_PROXY_PSK_FILE)
 XBLOOM_RADIO            proxy (default) | local | sim
 XBLOOM_DATA_DIR         recipes in <dir>/recipes, brew records in <dir>/brews
                         (default ./data)
+XBLOOM_ALLOWED_NETWORKS comma-separated client networks the hub answers, e.g.
+                        127.0.0.0/8,192.168.1.0/24 (default 127.0.0.0/8,::1/128)
 XBLOOM_ALLOWED_HOSTS    comma-separated Host names the hub answers to, exact,
                         no wildcard (default localhost,127.0.0.1)
 XBLOOM_SIM_BREW_S       with XBLOOM_RADIO=sim, how long a simulated brew
@@ -20,7 +22,7 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import BUILD_COMMAND, WEB_DIR, check_allowed_hosts, create_app, read_token
+from .app import BUILD_COMMAND, LOOPBACK, WEB_DIR, check_allowed_hosts, create_app, parse_networks, read_token
 from .brews import BrewStore
 from .machine import Machine
 from .recipes import RecipeStore
@@ -68,7 +70,8 @@ def main() -> None:
         raise SystemExit(f"unknown XBLOOM_RADIO: {kind}")
 
     store = RecipeStore(data / "recipes")
-    app = create_app(machine, store, token, hosts, radio, brews)
+    networks = parse_networks(env.get("XBLOOM_ALLOWED_NETWORKS", LOOPBACK))
+    app = create_app(machine, store, token, hosts, radio, brews, allowed_networks=networks)
     uvicorn.run(app, host=env.get("XBLOOM_BIND", "127.0.0.1"),
                 port=int(env.get("XBLOOM_PORT", "8377")), log_level="info",
                 # An open event stream never ends by itself; without this a

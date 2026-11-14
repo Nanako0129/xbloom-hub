@@ -502,8 +502,10 @@ from the address bar; it is sent only in the `Authorization` header. The
 event stream stays unauthenticated and read-only.
 
 **Reaching it from a phone.** The hub binds to `127.0.0.1` by default. For
-the LAN, `XBLOOM_BIND=0.0.0.0` with the Mac's address and `.local` name added
-to `XBLOOM_ALLOWED_HOSTS`; `docs/DASHBOARD.md` says how. The hub refuses to
+the LAN, `XBLOOM_BIND=0.0.0.0`, the home network in `XBLOOM_ALLOWED_NETWORKS`
+(clients outside it are refused) and the Mac's address in
+`XBLOOM_ALLOWED_HOSTS`; `docs/DASHBOARD.md` says how. In a container (S4) the
+host's own requests may arrive from the bridge gateway's address. The hub refuses to
 start with `*` or an empty entry in that list, so binding wide cannot undo
 the host check of P1-3.
 

@@ -228,7 +228,7 @@ def test_token_must_exist_and_be_non_empty(tmp_path):
 def client(tmp_path):
     machine = Machine(SimRadio(), SimListener)
     app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
-    with TestClient(app) as c:
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
         c.machine = machine
         deadline = time.monotonic() + 3
         while c.get("/api/state").json()["state"] != "idle":
@@ -494,7 +494,7 @@ def test_load_is_not_ok_unless_the_machine_says_armed(tmp_path, monkeypatch):
                         lambda self, predicate, timeout: asyncio.sleep(0, result=predicate()))
     machine = Machine(SimRadio(), Silent)
     app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
-    with TestClient(app) as c:
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
         deadline = time.monotonic() + 3
         while machine.state != "idle":
             assert time.monotonic() < deadline
@@ -578,3 +578,48 @@ def test_the_hub_refuses_to_start_without_a_built_dashboard(tmp_path, monkeypatc
     with pytest.raises(SystemExit) as stopped:
         entry.main()
     assert "frontend/npm.sh" in str(stopped.value) and "not built" in str(stopped.value)
+
+
+
+def test_only_clients_in_the_allowed_networks_are_answered():
+    import ipaddress
+
+    from starlette.applications import Starlette
+    from starlette.middleware import Middleware
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    from xbloom_hub.app import ClientNetworks, parse_networks
+
+    networks = parse_networks("127.0.0.0/8, 192.168.123.0/24")
+    app = Starlette(routes=[Route("/", lambda request: PlainTextResponse("ok"))],
+                    middleware=[Middleware(ClientNetworks, networks=networks)])
+    for client, allowed in (("127.0.0.1", True), ("192.168.123.40", True), ("192.168.1.40", False),
+                            ("10.0.0.5", False), ("testclient", False)):
+        answer = TestClient(app, client=(client, 50000)).get("/")
+        assert (answer.status_code == 200) is allowed, client
+    for bad in ("0.0.0.0/0", "", "not-a-network", "192.168.123.1/24"):
+        with pytest.raises(SystemExit):
+            parse_networks(bad)
+    assert parse_networks("::1/128")[0] == ipaddress.ip_network("::1/128")
+
+
+
+def test_the_hub_answers_only_its_own_host_unless_told(tmp_path):
+    """create_app with no networks is this host only, never open; an IPv4
+    client seen through a dual-stack socket is matched as IPv4."""
+    from starlette.testclient import TestClient
+
+    from xbloom_hub.app import parse_networks
+    from xbloom_hub.sim import SimListener, SimRadio
+
+    machine = Machine(SimRadio(), SimListener)
+    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
+    assert TestClient(app, client=("127.0.0.1", 1)).get("/api/state").status_code == 200
+    refused = TestClient(app, client=("192.168.123.40", 1)).get("/api/state")
+    assert refused.status_code == 403 and refused.json() == {"error": "network_not_allowed"}
+    assert "content-security-policy" in refused.headers            # refusals carry the headers too
+    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"],
+                     allowed_networks=parse_networks("192.168.123.0/24"))
+    assert TestClient(app, client=("::ffff:192.168.123.40", 1)).get("/api/state").status_code == 200

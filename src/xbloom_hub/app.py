@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import contextlib
 import hmac
 import json
@@ -80,6 +81,58 @@ def read_token(env: Mapping[str, str]) -> str:
     return token
 
 
+class ClientNetworks:
+    """Answers only clients whose address is in one of the given networks.
+
+    The hub may listen on every interface so a phone on the home network can
+    reach it; this keeps everyone else out, whichever network the host is on
+    (a Mac also joins other Wi-Fi). Checked before anything else.
+    """
+
+    def __init__(self, app, networks) -> None:
+        self._app = app
+        self._networks = tuple(networks)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            client = (scope.get("client") or ("", 0))[0]
+            try:
+                address = ipaddress.ip_address(client)
+            except ValueError:
+                address = None
+            # A dual-stack listener reports an IPv4 client as ::ffff:a.b.c.d.
+            if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+                address = address.ipv4_mapped
+            if address is None or not any(address in network for network in self._networks):
+                if scope["type"] == "http":
+                    return await JSONResponse({"error": "network_not_allowed"}, 403)(scope, receive, send)
+                return await send({"type": "websocket.close", "code": 1008})
+        return await self._app(scope, receive, send)
+
+
+# This host only: what the hub answers unless told otherwise.
+LOOPBACK = "127.0.0.0/8,::1/128"
+
+
+def parse_networks(text: str) -> list:
+    """XBLOOM_ALLOWED_NETWORKS: comma-separated networks such as
+    127.0.0.0/8,192.168.123.0/24. A network that would let in everyone is refused."""
+    networks = []
+    for item in (part.strip() for part in text.split(",")):
+        if not item:
+            continue
+        try:
+            network = ipaddress.ip_network(item, strict=True)
+        except ValueError as err:
+            raise SystemExit(f"XBLOOM_ALLOWED_NETWORKS: {item!r} is not a network ({err})") from err
+        if network.prefixlen == 0:
+            raise SystemExit("XBLOOM_ALLOWED_NETWORKS: a network of every address is refused")
+        networks.append(network)
+    if not networks:
+        raise SystemExit("XBLOOM_ALLOWED_NETWORKS lists no network")
+    return networks
+
+
 class Guard:
     """Token on every request that can change something; no cross-origin calls.
 
@@ -113,7 +166,9 @@ class Guard:
 
 
 def create_app(machine: Machine, store: RecipeStore, token: str,
-               allowed_hosts: list[str], radio=None, brews=None) -> Starlette:
+               allowed_hosts: list[str], radio=None, brews=None, allowed_networks=None) -> Starlette:
+    # No networks given: this host only. Never "no check".
+    allowed_networks = allowed_networks or parse_networks(LOOPBACK)
     check_allowed_hosts(allowed_hosts)
 
     async def state(request):
@@ -272,8 +327,11 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Mount("/", app=StaticFiles(directory=WEB_DIR, html=True, check_dir=False), name="web"),
         ],
         middleware=[
-            # Refuses a Host header that is not ours: DNS-rebinding protection.
+            # Every response, refusals included, carries the security headers.
             Middleware(SecurityHeaders),
+            # Then a client outside the allowed networks gets nothing at all.
+            Middleware(ClientNetworks, networks=allowed_networks),
+            # Refuses a Host header that is not ours: DNS-rebinding protection.
             Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
             Middleware(Guard, token=token),
         ],

@@ -5,6 +5,25 @@ library, past brews, and a console. It is built from `frontend/` (Svelte 5,
 TypeScript, ECharts, Vite) into `src/xbloom_hub/web/`, and nothing is loaded
 from elsewhere.
 
+## From a phone on the home network
+
+By default the hub answers only this host. To open it to a home network,
+listen on every interface and name the networks and the host's address
+(example values):
+
+```sh
+XBLOOM_BIND=0.0.0.0 \
+XBLOOM_ALLOWED_NETWORKS=127.0.0.0/8,::1/128,192.168.1.0/24 \
+XBLOOM_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.20 \
+uv run xbloom-hub
+```
+
+A client outside the listed networks gets 403 before anything else is
+looked at, whichever network the host is on; a network of every address is
+refused. The address bar must use a listed host name. Changing the machine
+still needs the token, which a phone gets once from `/#t=<token>` like any
+browser. The connection is plain HTTP on the LAN.
+
 ## Building it
 
 Every npm command runs in a throwaway container, never on the host
@@ -44,20 +63,9 @@ XBLOOM_RADIO=sim XBLOOM_HUB_TOKEN_FILE=secrets/hub_token uv run xbloom-hub
 brew (default 0.05 s, which is too short to see; the machine stays about
 20 s).
 
-## From another device on the network
-
-By default the hub listens on `127.0.0.1` only. To use the page from a phone:
-
-```sh
-XBLOOM_BIND=0.0.0.0
-XBLOOM_ALLOWED_HOSTS=localhost,127.0.0.1,<the hub's LAN address>,<its .local name>
-```
-
-`XBLOOM_ALLOWED_HOSTS` is the list of names the hub answers to. It must be
-exact: the hub refuses to start with a wildcard or an empty entry, because
-that check is what stops a web page elsewhere from reaching the hub through a
-DNS trick. The connection is plain HTTP, so the token crosses the network
-unencrypted; keep the hub on a network you trust.
+`XBLOOM_ALLOWED_HOSTS` must be exact: the hub refuses to start with a
+wildcard or an empty entry, because that check is what stops a web page
+elsewhere from reaching the hub through a DNS trick.
 
 ## What each part does
 
