@@ -262,3 +262,21 @@ def test_the_sidebar_stays_in_view_on_a_long_page(next_ui, hub):
     assert next_ui.evaluate("scrollY") > 0, "the page is not long enough to test this"
     top, bottom = next_ui.evaluate("(() => { const r = document.getElementById('side').getBoundingClientRect(); return [r.top, r.bottom]; })()")
     assert abs(top) < 1 and abs(bottom - 800) < 1, (top, bottom)
+
+
+def test_a_value_block_moves_with_the_keys_and_the_tally_follows(next_ui, hub):
+    """The editor's value blocks are native range inputs under the drawing:
+    keys (and so a drag) change the number, and the pour tally follows."""
+    next_ui.evaluate("location.hash = '#/recipes/new/short'")
+    pour = next_ui.locator(".pour-edit").first
+    expect(pour).to_be_visible()
+    volume = pour.locator(".slider").first
+    before = int(volume.locator("input.slider-number").input_value())
+    volume.locator("input.slider-range").focus()
+    for _ in range(5):
+        next_ui.keyboard.press("ArrowRight")
+    assert int(volume.locator("input.slider-number").input_value()) == before + 5
+    expect(next_ui.locator(".tally")).to_contain_text(f"{before + 5}/")
+    expect(next_ui.locator(".tally.bad")).to_have_count(1)       # 30 ml no longer matches 5 g at 1:5
+    next_ui.get_by_role("button", name="OFF").click()
+    expect(next_ui.locator(".slider", has_text="Grind size")).to_have_count(0)
