@@ -8,6 +8,9 @@
   import { planLine } from "../lib/records";
   import { previewPlan, type Pour, type Recipe } from "../lib/recipes";
   import Chart from "../components/Chart.svelte";
+  import Slider from "../components/Slider.svelte";
+  import Choice from "../components/Choice.svelte";
+  import Switch from "../components/Switch.svelte";
 
   // slug: the recipe being edited, or null for a new one; from: a recipe to start a new one from.
   let { slug, from }: { slug: string | null; from: string | null } = $props();
@@ -79,8 +82,23 @@
     }
   }
 
-  const PATTERNS = [1, 2, 3];
-  const CUPS = [1, 2, 3, 4];
+  // Drawings of our own: the xPod cup, the Omni dripper, a cone, a leaf.
+  const CUP_ICONS: Record<number, string> = {
+    1: "M6 6h12l-1.5 13h-9z M5 6h14",
+    2: "M4 7h16l-3 9H7z M9 16v3h6v-3 M3 7h18",
+    3: "M4 5h16l-7 13h-2z",
+    4: "M6 18c0-7 5-12 12-12 0 7-5 12-12 12z M6 18l6-6",
+  };
+  // Where the water lands: the centre, a spiral, a ring.
+  const PATTERN_ICONS: Record<number, string> = {
+    1: "M12 11a1 1 0 1 0 0 2 1 1 0 1 0 0-2z",
+    2: "M12 12m-1 0a1 1 0 1 1 2 0a3 3 0 1 1-6 0a5 5 0 1 1 10 0a7 7 0 1 1-14 0",
+    3: "M12 5a7 7 0 1 0 0 14a7 7 0 1 0 0-14z",
+  };
+  // Under the drawing, the name alone: the dose range in brackets is the hub's to enforce.
+  const cups = $derived([1, 2, 3, 4].map((v) => ({ value: v, name: t(`cup_type.${v}`).split(/[（(]/)[0].trim(), icon: CUP_ICONS[v] })));
+  const patterns = $derived([1, 2, 3].map((v) => ({ value: v, name: t(`pattern.${v}`), icon: PATTERN_ICONS[v] })));
+  const share = (volume: number | null) => (poured ? Math.round(((Number(volume) || 0) / poured) * 100) : 0);
 </script>
 
 <p><a href={slug ? `#/recipes/${encodeURIComponent(slug)}` : "#/recipes"}>{t("back")}</a></p>
@@ -105,30 +123,44 @@
           <label class="field wide"><span>{t("edit.slug")}</span>
             <input type="text" maxlength="64" placeholder="my-recipe" autocapitalize="none" spellcheck="false" bind:value={id} /></label>
         {/if}
-        <label class="field"><span>{t("edit.cup")}</span>
-          <select bind:value={draft.cup_type}>{#each CUPS as cup (cup)}<option value={cup}>{t(`cup_type.${cup}`)}</option>{/each}</select></label>
-        <label class="field"><span>{t("fact.dose")}</span><input type="number" min="1" max="25" step="1" bind:value={draft.dose_g} /></label>
-        <label class="field"><span>{t("edit.ratio")}</span><input type="number" min="5" max="25" step="0.5" bind:value={draft.ratio} /></label>
-        <label class="field"><span>{t("edit.grind")}</span><input type="checkbox" bind:checked={draft.grind} /></label>
-        <label class="field"><span>{t("edit.grind_size")}</span><input type="number" min="1" max="80" step="1" bind:value={draft.grind_size} /></label>
-        <label class="field"><span>{t("edit.rpm")}</span><input type="number" min="60" max="120" step="10" bind:value={draft.grinder_speed_rpm} /></label>
       </section>
 
-      <h2>{t("edit.pours")}</h2>
+      <div class="row editor-head">
+        <h2>{t("edit.coffee")}</h2>
+        <div class="toggle" role="group" aria-label={t("edit.grind")}>
+          <span>{t("edit.grind")}</span>
+          <button type="button" aria-pressed={draft.grind} onclick={() => { if (draft) draft.grind = true; }}>{t("edit.on")}</button>
+          <button type="button" aria-pressed={!draft.grind} onclick={() => { if (draft) draft.grind = false; }}>{t("edit.off")}</button>
+        </div>
+      </div>
+      <Choice options={cups} bind:value={draft.cup_type} label={t("edit.cup")} />
+      <div class="sliders">
+        <Slider label={t("fact.dose")} unit="g" min={1} max={25} step={1} bind:value={draft.dose_g} />
+        <Slider label={t("edit.ratio")} min={5} max={25} step={0.5} bind:value={draft.ratio} aside="{target} ml" />
+        {#if draft.grind}
+          <Slider label={t("edit.grind_size")} min={1} max={80} step={1} bind:value={draft.grind_size} />
+          <Slider label={t("edit.rpm_short")} unit="RPM" min={60} max={120} step={10} bind:value={draft.grinder_speed_rpm} />
+        {/if}
+      </div>
+
+      <div class="row editor-head">
+        <h2>{t("edit.pours")} <span class="num tally" class:bad={Math.abs(poured - target) > 0.5}>{poured}/{target} ml</span></h2>
+      </div>
       <ol class="pours-edit">
         {#each draft.pours as pour, i (pour)}
           <li class="pour-edit">
-            <div class="n">{i + 1}</div>
-            <label class="field"><span>{t("edit.volume")}</span><input type="number" min="1" max="240" step="1" bind:value={pour.volume_ml} /></label>
-            <label class="field"><span>{t("edit.temperature")}</span><input type="number" min="20" max="98" step="1" bind:value={pour.temperature_c} /></label>
-            <label class="field"><span>{t("edit.flow")}</span><input type="number" min="3" max="3.5" step="0.1" bind:value={pour.flow_rate} /></label>
-            <label class="field"><span>{t("edit.pause")}</span><input type="number" min="0" max="59" step="1" bind:value={pour.pause_s} /></label>
-            <label class="field"><span>{t("edit.pattern")}</span>
-              <select bind:value={pour.pattern}>{#each PATTERNS as p (p)}<option value={p}>{t(`pattern.${p}`)}</option>{/each}</select></label>
-            <label class="field"><span>{t("edit.agitate_before")}</span>
-              <input type="checkbox" checked={pour.agitate_before === 1} onchange={(e) => { pour.agitate_before = e.currentTarget.checked ? 1 : 2; }} /></label>
-            <label class="field"><span>{t("edit.agitate_after")}</span>
-              <input type="checkbox" checked={pour.agitate_after === 1} onchange={(e) => { pour.agitate_after = e.currentTarget.checked ? 1 : 2; }} /></label>
+            <div class="pour-head"><span class="n">{i + 1}</span><span class="num muted">{share(pour.volume_ml)}%</span></div>
+            <div class="sliders">
+              <Slider label={t("edit.volume_short")} unit="ml" min={1} max={240} step={1} bind:value={pour.volume_ml} />
+              <Slider label={t("edit.temperature_short")} unit="°C" min={20} max={98} step={1} bind:value={pour.temperature_c} />
+              <Slider label={t("edit.flow_short")} unit="ml/s" min={3} max={3.5} step={0.1} bind:value={pour.flow_rate} />
+              <Slider label={t("edit.pause_short")} unit="s" min={0} max={59} step={1} bind:value={pour.pause_s} />
+            </div>
+            <Choice options={patterns} bind:value={pour.pattern} label={t("edit.pattern")} />
+            <div class="switches">
+              <Switch label={t("edit.agitate_before")} bind:checked={() => pour.agitate_before === 1, (on) => { pour.agitate_before = on ? 1 : 2; }} />
+              <Switch label={t("edit.agitate_after")} bind:checked={() => pour.agitate_after === 1, (on) => { pour.agitate_after = on ? 1 : 2; }} />
+            </div>
             <div class="pour-tools">
               <button type="button" class="quiet small" disabled={i === 0} aria-label={t("edit.earlier")} onclick={() => move(i, -1)}>↑</button>
               <button type="button" class="quiet small" disabled={i === draft.pours.length - 1} aria-label={t("edit.later")} onclick={() => move(i, 1)}>↓</button>

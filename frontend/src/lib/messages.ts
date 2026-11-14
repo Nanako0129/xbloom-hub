@@ -7,6 +7,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "state.unheard": "等待回報", "home.unheard": "等待機器回報", "home.unheard_hint": "已連上咖啡機，但它還沒說自己在做什麼；通常是在休眠，轉一下旋鈕就會回報。",
    
     "edit.earlier": "往前移", "edit.later": "往後移",
+    "edit.volume_short": "水量", "edit.temperature_short": "水溫", "edit.flow_short": "流速", "edit.pause_short": "之後等待", "edit.rpm_short": "研磨轉速",
+    "edit.coffee": "咖啡", "edit.on": "ON", "edit.off": "OFF",
     "edit.preview": "預覽：約 {time} 注完，共 {total} ml",
     "chart.hint": "把游標移到圖上看數值；按住 ⌘／Ctrl 滾動或雙指縮放；拖下方滑桿移動；雙擊還原。",
     "tab.home": "現在", "tab.recipes": "配方", "tab.history": "紀錄", "tab.console": "主控台", "tab.label": "主要分頁",
@@ -117,6 +119,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "state.unheard": "Not heard from", "home.unheard": "Waiting for the machine", "home.unheard_hint": "Connected, but the machine has not said what it is doing yet; it is usually asleep. Turn the knob and it reports.",
    
     "edit.earlier": "Move earlier", "edit.later": "Move later",
+    "edit.volume_short": "Water", "edit.temperature_short": "Temperature", "edit.flow_short": "Flow", "edit.pause_short": "Then wait", "edit.rpm_short": "Grinder speed",
+    "edit.coffee": "Coffee", "edit.on": "ON", "edit.off": "OFF",
     "edit.preview": "Preview: pours end at about {time}, {total} ml in all",
     "chart.hint": "Point at the chart to read it; pinch or Ctrl-scroll to zoom, drag the slider below to move, double-click to reset.",
     "tab.home": "Now", "tab.recipes": "Recipes", "tab.history": "History", "tab.console": "Console", "tab.label": "Main sections",
