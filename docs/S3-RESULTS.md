@@ -126,6 +126,23 @@ after the brew opened):
   keeps the brew open; the page went on showing the brew, which is right,
   but it does not say "paused".
 
+## Flushing with hot water (2026-11-14, after step 3)
+
+The owner drank some of the unheated test water and found it tasted of
+metal. Three runs of a flushing recipe (grinder off, one 150 ml pour at
+93 °C and 3.0 ml/s), each loaded and started by the hub with the owner at
+the machine, the cup emptied between runs: each drew water within 1.2 s
+and poured its 150 ml (40511 at 50.6 to 50.8 s). Whether the taste has gone
+is not yet known. Water from the machine's unheated test runs is not for
+drinking.
+
+**40513 after the last pour is a finished brew.** The second flush got its
+40511 and then, 2.1 s later, 40513 with no 40512. The hub had closed it as
+`abandoned`; it now closes a brew as `finished` when 40513 arrives after
+every pour of the recipe has ended (40511 counted against the recipe's
+pours), and as `abandoned` otherwise. That record was corrected by the same
+rule.
+
 ## Known and left
 
 - A hub that connects in the 5 s a machine still reports 35 after a brew
