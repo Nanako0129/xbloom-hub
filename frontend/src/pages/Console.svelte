@@ -3,6 +3,7 @@
   import { act, work, release, acquire, ask } from "../lib/actions.svelte";
   import { t, setLanguage, language, LANGUAGE_NAMES, locale } from "../lib/i18n.svelte";
   import { stateName, reasonText, cupText, tankText } from "../lib/words";
+  import PairPanel from "../components/PairPanel.svelte";
 
   let gate = $state<{ at: number; code: number }[]>([]);
   const refresh = () => { api<{ at: number; code: number }[]>("GET", "/api/gate").then((rows) => { gate = rows; }).catch(() => {}); };
@@ -59,6 +60,7 @@
           {/if}
         </div>
       </section>
+      {#if hasToken()}<PairPanel />{/if}
     </div>
     <div>
       <section class="card"><h2>{t("console.changes")}</h2><pre class="log">{changes || t("console.no_changes")}</pre></section>

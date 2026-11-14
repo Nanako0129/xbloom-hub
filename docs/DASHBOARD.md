@@ -21,8 +21,23 @@ uv run xbloom-hub
 A client outside the listed networks gets 403 before anything else is
 looked at, whichever network the host is on; a network of every address is
 refused. The address bar must use a listed host name. Changing the machine
-still needs the token, which a phone gets once from `/#t=<token>` like any
-browser. The connection is plain HTTP on the LAN.
+still needs the token; a phone gets it by pairing (below). The connection
+is plain HTTP on the LAN.
+
+### Pairing a phone
+
+On a device that already holds the token, open the console at the hub's
+network address (not `localhost` or `127.0.0.1`, which a phone cannot
+reach; the panel says so if it is) and press "Add a device". Scan the QR
+code with the phone's camera. The code inside it works once, for two
+minutes, and is void when the panel closes or a new one is made; the phone
+trades it for the token and from then on can do what the first device can.
+The panel says "paired" once it has. Each claim is logged by the hub with
+the client's address, never with the code or the token.
+
+There is one token, so every paired device holds the same one. To unpair
+every device at once (a lost phone, a guest who scanned a code), write a
+new token into the token file and restart the hub, then pair again.
 
 ## Building it
 
