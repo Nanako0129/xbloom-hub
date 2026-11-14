@@ -4,6 +4,39 @@ Run on 2026-11-14 with the owner at the machine, firmware V12.0D.500, the
 radio path of S0 to S2. Steps are those of `docs/PLAN.md`, S3, "Observed on
 the machine".
 
+## Step 4: a real brew (2026-11-14, 23:46)
+
+The owner's first cup with beans: KaKaLove's Honduras washed Gesha
+(dark-room dried, light-medium), the recipe `kakalove-honduras-gesha-v1`
+(15 g, 1:16, grind 56 at 70 rpm, three pours 45 / 105 / 90 ml at 94 / 93 /
+92 °C), loaded from the page and started there. The record was cut in two
+by a release of the link I made during the brew; the hub now refuses
+that, and holds a brew across a real link drop (PR #37). The two records
+were merged by hand, with the 55 s gap marked.
+
+| Seconds into the record | Signal | Meaning |
+|---|---|---|
+| 0.0 | activity `30` | first seen after the start; meaning not settled |
+| 2.5 | activity `34` | **grinding**: 34 is the grinder, not seen before because every earlier test ran with the grinder off |
+| 28.9 | activity `16` | between grinding and pouring |
+| 31.4 | activity `35` | brewing (pouring) |
+| 32.0 | 40510, pour 0 | the first pour |
+| 171.0 | 40510, pour 2 | the third pour (pour 1's start fell in the gap) |
+| 199.2 | 40511 | the last pour ends; 240 ml |
+| 232.1 | 40512 | finished; 202.6 g in the cup |
+
+**Pouring took longer than computed.** From the first water to the end of
+the last pour: 167 s, against 123 s computed from the flow rates and
+pauses (the third pour started at 139 s against 95 s). Where the extra
+time went (a slower real flow, or the machine waiting between pours) is
+not known: pour 1 fell in the gap. Recipes' computed timings are
+therefore optimistic; the plan line on the page runs ahead of the cup.
+
+**Tasting (the owner):** acidity on entry fine, clean, a clear floral
+aftertaste, strength fine; a sharp feel in the throat, a slightly bitter
+finish, not sweet enough. Read as too much contact for the grind: v2 is
+the same recipe one change away, grind 56 → 60.
+
 ## Step 3: started at the knob (done, 2026-11-14)
 
 The step-1 recipe (25 ml at 20 °C), loaded from the dashboard at 19:47:17
@@ -154,4 +187,4 @@ rule.
 
 - No 9002 or 9008 (cup on, cup off) arrived during the run. Whether the cup
   was lifted is not recorded, so this says nothing yet about those events.
-- Step 4 (a real brew) is still to do.
+- Every attended step of S3 has now run on the machine.
