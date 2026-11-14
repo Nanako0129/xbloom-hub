@@ -811,9 +811,20 @@ Docker image (S4) builds in a separate stage and copies only the output.
   `src/lib/hub.ts` (the token, `api()`, the event stream, the one-request
   lock), `src/lib/i18n.ts` (the two dictionaries, moved as they are).
 - `vite build` writes to `src/xbloom_hub/web/`, which is git-ignored and
-  shipped in the wheel by a hatch build setting. The hub serves `web/` when
-  it holds an `index.html`, else the old `static/`, so a checkout without a
-  build still works until the switch.
+  shipped in the wheel by
+  `[tool.hatch.build.targets.wheel] artifacts = ["src/xbloom_hub/web/**"]`
+  (hatchling leaves ignored files out otherwise). Vite builds with
+  `base: "./"`: every asset is referenced relative to the page, so the same
+  build works at `/next/` and at `/`.
+- **Serving, one rule per phase.**
+  - Steps 2 to 5: `/` serves the old `static/`, always. A second
+    `StaticFiles` mount at `/next/` serves `web/`, placed before the `/`
+    mount, and is added only when `web/index.html` exists at start. A
+    checkout with no build starts and serves `/` as today.
+  - Step 6: `/` serves `web/` only; the `/next/` mount and `static/` are
+    gone. If `web/index.html` is missing at start, the hub refuses to start
+    with a message naming the build command (`npm --prefix frontend run
+    build`). It never serves an empty site.
 - The old `static/` stays, untouched, until the new page passes every
   browser test; then it is removed in the same pull request that makes the
   new one the default.
@@ -846,7 +857,24 @@ Docker image (S4) builds in a separate stage and copies only the output.
    load, confirm, start, follow the brew, finished view; stop during a
    brew; a `no_cup` refusal keeps the ticket; a load made elsewhere shows
    "load again" instead of Start; cancel; a recipe named with markup shows
-   as text; the recipe editor saves, refuses a taken id, keeps typing after
+   as text; and four that hold the safety behaviour itself:
+   - one request at a time: the start (and the load) request is held with
+     `page.route`, the button is pressed again, and exactly one request
+     reaches the hub;
+   - Stop is not replaced: during a brew a handle is taken on the Stop
+     element, several snapshots pass, and it is the same connected node,
+     still enabled;
+   - the ticket goes when the machine leaves the armed state: the page loads
+     (so it holds a ticket), then the same slug is cancelled and loaded
+     again through REST, and the page shows "load again" and no Start;
+   - the start confirmation shows the recipe as the hub returns it: the
+     dialog's name, dose, ratio and pour volumes equal the hub's `plan`
+     answer for that slug.
+   Each of these four is shown to fail when the line it guards is removed
+   from a copy of the old `app.js` (the `busy` early return in `act()`, the
+   stable Stop node, the ticket drop on leaving the armed state,
+   `recipeFacts(info)` in the confirmation), and to pass on the old page as
+   it is. The rest of the list: the recipe editor saves, refuses a taken id, keeps typing after
    a refusal; history, a record, compare; the console; both languages; no
    CSP violation and no script error on any page. These must pass on the
    old page as they stand.
@@ -869,7 +897,11 @@ During steps 2 to 5 the new page is served at `/next/` and the old one at
 
 **Acceptance.** Every flow of step 1 passes against the new page; no CSP
 violation; `svelte-check` and the build have no errors; the Python suite
-passes; the owner looks at it at 2560 px and on the phone. Then one load
+passes; during steps 2 to 5, with `web/` built, `GET /` is the old page,
+`GET /next/` is the new one and every asset it references answers 200 with
+the CSP header; `uv build` after `vite build` gives a wheel whose file list
+holds `xbloom_hub/web/index.html` and its assets; after step 6, starting
+with no `web/` stops with the message; the owner looks at it at 2560 px and on the phone. Then one load
 and one start of the 25 ml test recipe on the machine, owner present, as
 in S3 step 1.
 
