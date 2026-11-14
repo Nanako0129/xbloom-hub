@@ -6,6 +6,14 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#161617">
 <title>xbloom hub</title>
+<!-- The logo (the dot-matrix cup with steam) and the home-screen entry. The
+     manifest opens in the browser, not standalone: a standalone home-screen
+     app on iOS keeps its own storage and would lose the pairing (owner's
+     choice, 2026-11-14). -->
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="manifest" href="./manifest.json">
+<meta name="apple-mobile-web-app-title" content="xbloom hub">
 </head>
 <body>
 <div id="app"></div>

@@ -55,7 +55,7 @@
 </script>
 
 <aside id="side">
-  <div class="brand">xbloom hub</div>
+  <div class="brand"><img src="./icon.svg" alt="" width="28" height="28" />xbloom hub</div>
   <nav id="tabs" aria-label={t("tab.label")}>
     {#each TABS as tab (tab.name)}
       <a href={tab.href} data-tab={tab.name} aria-current={current === tab.name ? "page" : undefined}>
