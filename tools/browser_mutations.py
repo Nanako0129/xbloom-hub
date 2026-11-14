@@ -123,8 +123,6 @@ def main() -> int:
         ok = not without
         held &= ok
         print(f"{'HELD' if ok else 'NOT HELD':9} {name}: without the guard {'passed' if without else 'failed'}, with it passed")
-    # Leave the copy as the sources are, so the next run starts from them.
-    build([])
     return 0 if held else 1
 
 

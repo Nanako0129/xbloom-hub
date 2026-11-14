@@ -39,7 +39,7 @@ function describeError(code: string | undefined, status: number): string {
   return code && MESSAGES.en[`error.${code}`] ? t(`error.${code}`) : status ? t("error.http", { status }) : t("error.no_hub");
 }
 
-// Paths are absolute and under /api only: the page may be served from /next/.
+// Paths are absolute and under /api only, whatever address the page has.
 export async function api<T = unknown>(method: string, path: string, body?: unknown,
   describe: (code: string | undefined, status: number) => string = describeError): Promise<T> {
   if (!path.startsWith("/api/")) throw new Error(`not a hub path: ${path}`);

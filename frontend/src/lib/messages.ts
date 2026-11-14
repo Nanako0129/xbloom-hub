@@ -1,5 +1,5 @@
 // Interface text, one dictionary per language with the same keys. Moved
-// unchanged from the hand-written page (static/i18n.js).
+// first from the hand-written page this dashboard replaced.
 export const LANGUAGE_NAMES: Record<string, string> = { "zh-Hant": "繁體中文", en: "English" };
 
 export const MESSAGES: Record<string, Record<string, string>> = {

@@ -100,8 +100,8 @@ the browser's languages and remembers a choice made in the console.
 
 To add one: copy a dictionary block, translate the values, add its name to
 `LANGUAGE_NAMES`. A test fails if a language is missing a key or a
-placeholder, or if the page uses a key that does not exist. `app.js` and
-`index.html` contain no interface text of their own, and "xbloom hub" is a
+placeholder, or if the page uses a key that does not exist. The sources in
+`frontend/src` contain no interface text of their own, and "xbloom hub" is a
 name: it is not translated.
 
 ## How it is kept safe

@@ -9,31 +9,14 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from xbloom_hub import app as hub_app
-
-from .conftest import PROBE, TOKEN
+from .conftest import TOKEN
 
 
 
 @pytest.fixture
-def next_ui(page, hub):
-    problems: list[str] = []
-
-    def on_console(message):
-        text = message.text
-        if text.startswith("[probe] ") or "Content Security Policy" in text or "Refused to" in text:
-            problems.append(text)
-
-    page.on("console", on_console)
-    page.on("pageerror", lambda error: problems.append(f"pageerror {error}"))
-    page.add_init_script(PROBE)
-    page.add_init_script(
-        "try { if (!localStorage.getItem('xbloom-hub-lang')) localStorage.setItem('xbloom-hub-lang', 'en'); } catch (_) {}")
-    page.goto(f"{hub.base}/#t={TOKEN}")
-    page.wait_for_selector("#machine .state")
-    yield page
-    assert not problems, problems
-
+def next_ui(ui):
+    """The dashboard, as every browser test opens it (conftest.py's `ui`)."""
+    return ui
 
 def test_the_token_leaves_the_address_and_the_page(next_ui, hub):
     assert next_ui.evaluate("location.hash") == "#/"

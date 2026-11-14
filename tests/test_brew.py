@@ -405,8 +405,11 @@ def test_the_page_is_served_under_a_strict_policy(client):
     page = client.get("/")
     assert page.status_code == 200 and "text/html" in page.headers["content-type"]
     import re
+    from xbloom_hub.app import BUILD_COMMAND, WEB_DIR
+    if not (WEB_DIR / "index.html").is_file():
+        pytest.skip(f"the dashboard is not built ({BUILD_COMMAND}); the browser tests check it too")
     assets = re.findall(r'(?:src|href)="\./(assets/[^"]+)"', page.text)
-    assert assets, "the dashboard is not built"
+    assert assets, page.text
     for response in (page, client.get("/api/state"), *(client.get(f"/{a}") for a in assets)):
         assert response.status_code == 200
         assert response.headers["content-security-policy"] == CSP
@@ -433,7 +436,8 @@ def _dictionaries():
     for code in ("zh-Hant", "en"):
         start = text.index(f'"{code}": {{') if code == "zh-Hant" else text.index("\n  en: {")
         end = text.index("\n  },", start)
-        blocks[code] = dict(re.findall(r'"([a-z_.]+)":\s*"((?:[^"\\\\]|\\\\.)*)"', text[start:end]))
+        # Keys may hold digits (cup_type.1, pattern.3).
+        blocks[code] = dict(re.findall(r'"([a-z0-9_.]+)":\s*"((?:[^"\\\\]|\\\\.)*)"', text[start:end]))
     return blocks
 
 
@@ -446,6 +450,16 @@ def test_every_language_has_the_same_keys_and_placeholders():
     for key in en:
         assert set(re.findall(r"\{(\w+)\}", zh[key])) == set(re.findall(r"\{(\w+)\}", en[key])), key
         assert zh[key].strip() and en[key].strip(), key
+
+
+# Every reason the hub gives for being offline (machine.py's self._error).
+def _reasons():
+    import re
+    text = (pathlib.Path(__file__).resolve().parents[1] / "src" / "xbloom_hub" / "machine.py").read_text(encoding="utf-8")
+    return tuple(sorted(set(re.findall(r'self\._error = "([a-z_]+)"', text))))
+
+
+REASONS = _reasons()
 
 
 def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
@@ -464,7 +478,10 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
                            ("error", ("unauthorized", "not_ready", "bad_ticket", "no_cup", "recipe_is_loaded",
                                       "recipe_invalid", "recipe_exists", "machine_refused", "machine_unanswered",
                                       "cancel_failed", "not_found", "foreign_origin")),
-                           ("meta", ("bean", "roaster", "process", "roast", "source", "notes"))):
+                           ("meta", ("bean", "roaster", "process", "roast", "source", "notes")),
+                           ("cup_type", ("1", "2", "3", "4")), ("pattern", ("1", "2", "3")),
+                           ("tab", ("home", "recipes", "history", "console", "label")),
+                           ("reason", REASONS)):
         for value in values:
             assert f"{prefix}.{value}" in keys, f"{prefix}.{value}"
     # All interface text lives in the dictionaries: no Chinese in the sources.
