@@ -409,9 +409,12 @@ button.tile:active { background: var(--fill-press); }
 .done { display: flex; align-items: center; gap: 20px; }
 .done-chart { max-width: 1200px; }
 .done svg.dot-cup { width: 64px; height: 64px; flex: none; fill: var(--dot); }
-.dot-cup .steam { animation: steam 1.6s steps(1) infinite; }
-.dot-cup .steam.s1 { animation-delay: -0.8s; }
-@keyframes steam { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+/* The steam swaps between its two frames, on or off, as on the machine's
+   display: no fade. 1.2 s a cycle, 0.6 s a frame (the photos show the two
+   frames, not their timing; adjust here). */
+.dot-cup .steam { animation: steam 1.2s steps(1) infinite; }
+.dot-cup .steam.b { animation-delay: -0.6s; }
+@keyframes steam { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
 /* ---- motion -----------------------------------------------------------------------
    One curve and three lengths for everything that moves. Arrivals and
@@ -505,6 +508,7 @@ dialog::backdrop { animation: fade var(--settle) ease both; -webkit-backdrop-fil
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, dialog::backdrop { animation: none !important; transition: none !important; }
   button:active, a.recipe:active { transform: none; }
+  .dot-cup .steam.b { opacity: 0; }       /* still: the first frame only */
 }
 
 /* ---- charts drawn by ECharts (S3c step 3) ------------------------------------ */
