@@ -529,3 +529,8 @@ dialog::backdrop { animation: fade var(--settle) ease both; -webkit-backdrop-fil
 .chart i.dashed { border-top-style: dashed; }
 .chart .legend .key i { margin-right: 0; }
 a.pill.disabled { opacity: 0.4; pointer-events: none; }
+
+/* ---- the recipe editor (S3c step 4) ------------------------------------------- */
+.pour-tools { display: flex; gap: 8px; align-items: end; grid-column: 2 / -1; }
+.pour-tools button.small { width: auto; margin-top: 0; min-width: 44px; }
+#edit-total.bad { color: var(--stop); }
