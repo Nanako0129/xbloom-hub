@@ -83,11 +83,16 @@ export const hub = $state({
   log: [] as { at: Date; snap: Snapshot }[],
 });
 
+// Others that follow every state as it arrives (the live brew).
+const followers: ((next: Snapshot, before: Snapshot | null) => void)[] = [];
+export function follow(fn: (next: Snapshot, before: Snapshot | null) => void): void { followers.push(fn); }
+
 export function listen(): void {
   const source = new EventSource("/api/events");
   source.onmessage = (event) => {
     const next = JSON.parse(event.data) as Snapshot;
     const before = hub.state;
+    for (const fn of followers) fn(next, before);
     hub.reachable = true;
     if (!before || before.state !== next.state || before.error !== next.error || before.activity !== next.activity) {
       hub.log.push({ at: new Date(), snap: next });

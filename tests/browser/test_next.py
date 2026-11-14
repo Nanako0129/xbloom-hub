@@ -75,13 +75,6 @@ def test_the_console_reads_and_switches_language(next_ui, hub):
     expect(next_ui.locator("#view button")).to_have_count(0)
 
 
-def test_a_page_not_moved_yet_links_to_the_current_one(next_ui, hub):
-    next_ui.evaluate("location.hash = '#/history'")              # leave home, then come back to it
-    next_ui.evaluate("location.hash = '#/'")
-    link = next_ui.locator("#view a")
-    expect(link).to_have_attribute("href", "/#/")
-
-
 def test_both_dashboards_are_served_with_the_policy(hub):
     old = httpx.get(hub.base + "/", timeout=5)
     assert "app.js" in old.text and "content-security-policy" in old.headers
@@ -226,3 +219,58 @@ def test_editing_an_existing_recipe_loads_it(next_ui, hub):
     assert next_ui.locator(".form input[type='text']").first.input_value() == "Long test"
     # An existing recipe keeps its id: no id field.
     expect(next_ui.locator(".form input[placeholder='my-recipe']")).to_have_count(0)
+
+
+
+# ---- step 5: home at rest, armed, brewing, finished ----------------------------
+
+def test_home_at_rest_shows_the_scale_recipes_and_the_last_brew(next_ui, hub):
+    from .conftest import HOSTILE
+    expect(next_ui.get_by_role("heading", name="Ready to brew")).to_be_visible()
+    expect(next_ui.locator("#view .scale svg.dots")).to_be_visible()
+    expect(next_ui.locator("#view .home-pick .recipe")).to_have_count(6)
+    expect(next_ui.locator("#view .home-past").get_by_text(HOSTILE).first).to_be_visible()
+    expect(next_ui.locator("#view .tile")).to_have_count(2)
+    _no_markup(next_ui)
+
+
+def test_armed_shows_the_recipe_and_sends_start_to_the_current_page(next_ui, hub):
+    assert hub.api("POST", "/api/machine/load", {"slug": "short"}).status_code == 200
+    expect(next_ui.get_by_role("heading", name="Short test")).to_be_visible()
+    expect(next_ui.locator("#view .readouts .readout")).to_have_count(3)
+    expect(next_ui.locator("#view a[href='/#/']")).to_have_count(1)
+    expect(next_ui.locator("#view button")).to_have_count(1)        # the plan chart's legend only
+
+
+def test_a_brew_follows_live_then_shows_its_end(next_ui, hub):
+    loaded = hub.api("POST", "/api/machine/load", {"slug": "long"}).json()
+    assert hub.api("POST", "/api/machine/start", {"ticket": loaded["ticket"]}).status_code == 200
+    expect(next_ui.get_by_role("heading", name="Long test")).to_be_visible()
+    water = next_ui.locator("#view .readouts .readout").nth(1).locator("svg.dots")
+    node = water.element_handle()
+    first = water.get_attribute("aria-label")
+    next_ui.wait_for_timeout(1500)
+    # The same element, its value moved on: the dots turn, nothing is rebuilt.
+    assert node.evaluate("(e) => e.isConnected") and water.get_attribute("aria-label") != first
+    expect(next_ui.locator("#view .echart-canvas canvas").first).to_be_visible()
+    expect(next_ui.locator("#view .pours li[data-now='true']")).to_have_count(1)
+    expect(next_ui.locator("#view a[href='/#/']")).to_have_count(1)   # Stop is on the current page
+    expect(next_ui.get_by_role("heading", name="Brew finished")).to_be_visible(timeout=20000)
+    expect(next_ui.locator("#view svg.dot-cup")).to_be_visible()
+    expect(next_ui.locator("#view .readouts .readout")).to_have_count(3)
+    hub.wait_state("idle", timeout=20)
+    expect(next_ui.get_by_role("heading", name="Ready to brew")).to_be_visible()
+    _no_markup(next_ui)
+
+
+
+def test_a_machine_not_heard_from_is_not_called_busy(next_ui, hub):
+    # As after a hub restart beside a sleeping machine: connected, nothing reported.
+    def forget():
+        hub.machine._activity = None
+        hub.machine._publish()
+    done = __import__("threading").Event()
+    hub.loop.call_soon_threadsafe(lambda: (forget(), done.set()))
+    assert done.wait(5)
+    expect(next_ui.get_by_role("heading", name="Waiting for the machine")).to_be_visible()
+    expect(next_ui.locator("#machine .state")).to_contain_text("Not heard from")
