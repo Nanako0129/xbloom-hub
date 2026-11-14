@@ -362,8 +362,8 @@ dispense water.
   means one write while the machine is awake; the firmware refuses a
   duplicate as busy in any case (xbloom-py `spec.py`).
 - `Machine.stop()` sends 40519 and is accepted only while a brew record is
-  open (below). It does not wait behind a start's echo: it takes no lock that
-  a start holds while waiting.
+  open (below). It has its own lock, so it never waits behind a start's echo,
+  and a second Stop while one is in flight is refused rather than sent.
 - `POST /api/machine/start` (body: the ticket) and `POST /api/machine/stop`.
   REST only, bearer token required as for every non-GET. **Not MCP tools.**
 - The dashboard's start button opens a confirmation that names the recipe and
@@ -386,33 +386,48 @@ at all, and the weight route is closed.
 
 ### The brew record
 
-**When a brew opens.** One of:
+**A brew opens only on what the machine reports**, never because the hub sent
+something. With no brew open, one of:
 
-- the hub writes 8002 (at the write, whether or not its echo arrives, so an
-  unanswered start still has a record and a Stop);
-- with no brew open, the machine reports a pour starting (40510) or activity
-  34 (the value xbloom-py and the Home Assistant integration give for
-  grinding and brewing). This is a brew started at the knob.
+- a pour starting (40510);
+- activity **changing into** 34 from another value (34 is what xbloom-py and
+  the Home Assistant integration give for grinding and brewing). Activity
+  arrives with every status frame, so only the change counts: a machine that
+  goes on reporting 34 after a brew has closed opens nothing until activity
+  has left 34 and come back, or a new 40510 arrives;
+- for 30 seconds after the hub wrote 8002 only: activity changing to any
+  value that is not known to be something else (1, 65, 10, 29, 4, 5, 31, 36).
+  Which values this machine shows during a brew is unmeasured, 34 included,
+  and a start the hub sent must not end up brewing with no record and no
+  Stop because the guess was wrong.
 
-Nothing else opens one. In particular these never do: activity 1 and 65
-(home), 10 (asleep), 29 (after the handshake), 4 and 5 (tare), 31 (recipe
-ready, also seen after a pause), 36 and the notifications 40511, 40512 and
-40513, so a record that has just closed is not reopened by its own ending.
-Which activity values this machine actually shows during a brew is recorded
-in the hardware run; 34 is from other people's observations, not ours.
+These never open one: activity 1 and 65 (home), 10 (asleep), 29 (after the
+handshake), 4 and 5 (tare), 31 (recipe ready, also seen after a pause), 36,
+and 40511, 40512 and 40513.
+
+**What a start does to the state.** Nothing by itself. After the hub writes
+8002 the state is still `armed` until the machine shows a brew:
+
+- accepted, and the machine brews: a record opens from the signals above;
+- **refused** (`CommandRefused`): the caller gets the refusal, the state stays
+  `armed`, cancel works, the ticket stays consumed;
+- **unanswered**: the caller is told so. If the machine did start, the record
+  opens from its signals; if it did not, the state is still `armed` and
+  cancel works.
 
 **The recipe travels with it.** Today the hub forgets its loaded recipe the
 moment the machine leaves the recipe screen. From S3, leaving 31 voids the
 start ticket and the "loaded" mark as before, but the recipe (as checked and
 as sent) is held until the machine is home or asleep again; a brew that opens
-in between, by either route, takes it. A brew that opens with nothing held
-has `recipe: null`.
+in between takes it. A brew that opens with nothing held has `recipe: null`.
 
-**When it closes.** 40512 (finished), 40513 (abandoned), a return to home
-(activity 1 or 65), or the link dropping; a stop the hub sent is recorded as
-the reason when the machine then goes home. There is no timer: a record stays
-open, and Stop stays available, for as long as the machine has not said the
-brew is over. While one is open the state is `brewing`.
+**When it closes.** 40512 (finished), 40513 (abandoned), activity 1 or 65
+(home), activity 10 (asleep), or the link dropping; a stop the hub sent is
+recorded as the reason when one of those follows it. There is no timer.
+
+**State while a record is open** is `brewing`, whatever the activity value,
+including 31 during a pause. With no record open the states are as in S2, so
+load and cancel are never blocked by a brew that is not happening.
 
 Each record is one JSON file under `data/brews/`: when it started, how it
 ended, the recipe as checked and as sent (or null), every weight (20501) and
@@ -485,11 +500,18 @@ the host check of P1-3.
 - The simulator gains a brew: after a start it reports activity 34, pour
   events, rising water and weight, and finished. Tests check the record for a
   hub start, for a stop, for a knob start after a hub load (recipe present),
-  for a knob start with nothing loaded (recipe null), and for an unanswered
-  8002 (record open, Stop accepted); that tare, handshake, recipe-ready and
-  finished signals open nothing; that a closed record is not reopened; that
-  the file exists while the brew is still running; and that no record, snapshot
-  or stream message contains the serial number.
+  and for a knob start with nothing loaded (recipe null). A refused 8002
+  leaves no record, the state `armed` and cancel accepted. An unanswered 8002
+  with the simulator staying at 31 leaves no record, the state `armed` and
+  cancel accepted; an unanswered 8002 after which the simulator brews opens a
+  record. After a hub start, an activity value outside the known list opens a
+  record; the same value without a hub start does not. An open record
+  followed by activity 10 closes. After 40512, further frames with activity
+  34 and then activity 1 leave exactly one closed record and none open. Tare,
+  handshake, recipe-ready and finished signals open nothing. After each of
+  these a load from idle or asleep is accepted. The file exists while the
+  brew is still running, and no record, snapshot or stream message contains
+  the serial number.
 - The page: served with the CSP header; `index.html` contains no inline
   script, inline style or `on…=` attribute; `app.js` assigns no data to
   `innerHTML` (checked by reading the source in the test, and by loading a
@@ -510,7 +532,9 @@ and a dripper over an empty cup that holds at least 150 ml.
 
 1. **Harmless start.** Grinder off, 5 g, ratio 1:5: one 25 ml pour at 20 °C.
    Load and start from the dashboard. Expected: 25 ml of unheated water; the
-   gate log shows one 8002; the page follows the brew; a record is written.
+   gate log shows 8002 (more than one would mean the library re-sent it,
+   which is recorded, not a failure: the firmware refuses a duplicate as
+   busy); the page follows the brew; a record is written.
    Before the load, the cup is lifted and put back, and the run notes whether
    9002 and 9008 arrive. The run also notes every activity value seen.
 2. **Stop.** Grinder off, 5 g, ratio 1:20: one 100 ml pour at 20 °C and
