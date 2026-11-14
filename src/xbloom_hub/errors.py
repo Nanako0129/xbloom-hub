@@ -7,11 +7,16 @@ from xbloom.ble import CommandRefused, CommandUnanswered
 from .brews import BadBrewId
 from .gate import GateRefused
 from .machine import BadTicket, CancelFailed, NoCup, NotReady
+from .pairing import BadPairingCode
 from .recipes import BadSlug, RecipeExists, RecipeInvalid
 
 
 class RecipeLoaded(RuntimeError):
     """The recipe under this slug is the one loaded on the machine right now."""
+
+
+class BodyTooLarge(ValueError):
+    """A request body over the route's cap, refused before it is read in full."""
 
 
 # exception -> (HTTP status, name)
@@ -28,6 +33,8 @@ TABLE: dict[type[Exception], tuple[int, str]] = {
     CommandRefused: (502, "machine_refused"),
     CommandUnanswered: (502, "machine_unanswered"),
     GateRefused: (500, "gate_refused"),
+    BadPairingCode: (403, "bad_pairing_code"),
+    BodyTooLarge: (413, "body_too_large"),
 }
 
 

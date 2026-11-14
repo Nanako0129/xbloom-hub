@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hub, listen } from "./lib/hub.svelte";
+  import { hub, listen, pairing } from "./lib/hub.svelte";
   import { route } from "./lib/route.svelte";
   import { t } from "./lib/i18n.svelte";
   import { stateLabel, stateDetail, unheard } from "./lib/words";
@@ -41,6 +41,8 @@
   });
   // A message belongs to the page it was shown on.
   $effect(() => { route.hash; work.flash = null; });
+  // A pairing's outcome, from a QR code opened on this device (S3d).
+  const PAIR_TEXT = { claiming: "pair.claiming", paired: "pair.claim_ok", failed: "pair.claim_failed", nostore: "pair.claim_nostore" } as const;
   // While a request is on its way the pill shows; the stylesheet keys on body[data-busy].
   $effect(() => {
     if (work.busy || work.stopping) document.body.dataset.busy = ""; else delete document.body.dataset.busy;
@@ -68,6 +70,9 @@
     <span id="status-detail">{statusDetail}</span>
   </header>
   <main id="view" tabindex="-1" bind:this={view}>
+    {#if pairing.claim !== "none"}
+      <p class="notice" class:bad={pairing.claim === "failed" || pairing.claim === "nostore"} id="pair-claim">{t(PAIR_TEXT[pairing.claim])}</p>
+    {/if}
     {#if work.flash}<p class="notice" class:bad={work.flash.bad} id="flash">{work.flash.text}</p>{/if}
     {#if route.current.name === "home"}
       <Home />

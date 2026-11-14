@@ -6,6 +6,7 @@ import ipaddress
 import contextlib
 import hmac
 import json
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -19,11 +20,18 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from . import errors
 from .machine import Machine
+from .errors import BodyTooLarge
+from .pairing import LIFETIME_S, Pairing
 from . import gate
 from .recipes import RecipeInvalid, RecipeStore, as_sent, plan
 
 TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
+# The one write that needs no token: a phone trading a pairing code for it
+# (docs/PLAN.md, S3d-1). Exact method and path, nothing near it.
+CLAIM = ("POST", "/api/pair/claim")
+CLAIM_BODY_CAP = 1024
+log = logging.getLogger(__name__)
 # The dashboard, built from frontend/ by `frontend/npm.sh run build` (it is
 # git-ignored, and shipped in the sdist and the wheel). The hub refuses to
 # start without it (__main__); an app made for a test serves what is there.
@@ -157,6 +165,8 @@ class Guard:
         # Reads are open; anything that can change something needs the token.
         # Every MCP request needs it whatever its method: its GET is a stream
         # of tool traffic, not a read of public state.
+        if (scope["method"], scope["path"]) == CLAIM:
+            return await self._app(scope, receive, send)
         if scope["method"] not in ("GET", "HEAD") or scope["path"].startswith(MCP_PATH):
             scheme, _, presented = headers.get("authorization", "").partition(" ")
             if (scheme != "Bearer" or not presented
@@ -170,6 +180,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
     # No networks given: this host only. Never "no check".
     allowed_networks = allowed_networks or parse_networks(LOOPBACK)
     check_allowed_hosts(allowed_hosts)
+    pairing = Pairing()
 
     async def state(request):
         return JSONResponse(machine.snapshot())
@@ -261,9 +272,50 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         await machine.acquire()
         return JSONResponse(machine.snapshot())
 
-    async def _json(request) -> dict:
+    async def pair_start(request):
+        return JSONResponse({"code": pairing.start(), "expires_in_s": LIFETIME_S})
+
+    async def pair_cancel(request):
+        pairing.cancel()
+        return JSONResponse({"state": pairing.status()})
+
+    async def pair_status(request):
+        return JSONResponse({"state": pairing.status()})
+
+    async def pair_claim(request):
+        client = (request.client or ("?", 0))[0]
         try:
-            body = await request.json()
+            # Read under the cap; then spend the code with no await in between.
+            try:
+                code = (await _json(request, cap=CLAIM_BODY_CAP)).get("code")
+            except RecipeInvalid:
+                code = None          # not a JSON object: as wrong as a wrong code
+            pairing.claim(code)
+        except Exception as err:
+            # Never the code, never the token: who asked and that it failed.
+            log.info("pairing claim from %s: refused (%s)", client, type(err).__name__)
+            raise
+        log.info("pairing claim from %s: paired", client)
+        return JSONResponse({"token": token})
+
+    async def _json(request, cap: int | None = None) -> dict:
+        if cap is None:
+            raw = await request.body()
+        else:
+            # Refused before it is read in full: by the length it states (so a
+            # client cannot state a large body and hold the request open), or
+            # as soon as what arrives passes the cap (a chunked body states none).
+            length = request.headers.get("content-length")
+            if length is not None and (not length.isdigit() or int(length) > cap):
+                raise BodyTooLarge(f"over {cap} bytes")
+            buffer = bytearray()
+            async for chunk in request.stream():
+                buffer += chunk
+                if len(buffer) > cap:
+                    raise BodyTooLarge(f"over {cap} bytes")
+            raw = bytes(buffer)
+        try:
+            body = json.loads(raw)
         except ValueError:
             body = None
         if not isinstance(body, dict):
@@ -320,6 +372,10 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/brews/{brew_id}", brew_item),
             Route("/api/link/release", release, methods=["POST"]),
             Route("/api/link/acquire", acquire, methods=["POST"]),
+            Route("/api/pair/start", pair_start, methods=["POST"]),
+            Route("/api/pair/cancel", pair_cancel, methods=["POST"]),
+            Route("/api/pair/status", pair_status, methods=["POST"]),
+            Route(CLAIM[1], pair_claim, methods=["POST"]),
             # The SDK's route itself, at /mcp, rather than a Mount (which
             # would answer at /mcp/ and redirect /mcp).
             *mcp_app.routes,

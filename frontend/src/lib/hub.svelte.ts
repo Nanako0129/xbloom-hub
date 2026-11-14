@@ -19,7 +19,30 @@ function takeToken(): void {
 takeToken();
 window.addEventListener("hashchange", takeToken);
 
+// Pairing (docs/PLAN.md, S3d): a phone opened #p=<code> from a QR code.
+// Only the exact form counts; the code leaves the address at once, before
+// anything else runs, and is then traded for the token. A failed trade
+// leaves a token this device already holds as it is.
+export const pairing = $state({ claim: "none" as "none" | "claiming" | "paired" | "failed" | "nostore" });
+
+function takePairing(): void {
+  const match = location.hash.match(/^#p=([A-Za-z0-9_-]{22})$/);
+  if (!match) return;
+  history.replaceState(null, "", location.pathname + "#/");
+  pairing.claim = "claiming";
+  api<{ token: string }>("POST", "/api/pair/claim", { code: match[1] })
+    .then((data) => {
+      if (typeof data?.token !== "string" || !data.token) throw new Error("refused");
+      try { localStorage.setItem(TOKEN_KEY, data.token); } catch { pairing.claim = "nostore"; return; }
+      pairing.claim = "paired";
+    })
+    .catch(() => { pairing.claim = "failed"; });
+}
+takePairing();
+window.addEventListener("hashchange", takePairing);
+
 export function hasToken(): boolean {
+  pairing.claim;               // read again once a pairing lands
   try { return Boolean(localStorage.getItem(TOKEN_KEY)); } catch { return false; }
 }
 
