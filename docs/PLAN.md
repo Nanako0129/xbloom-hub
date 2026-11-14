@@ -329,6 +329,154 @@ cloud recipes; brew history and feedback; the dashboard; Docker.
 
 **Rollback.** New files plus additive changes to `app.py` and `recipes.py`.
 
+## S3 — dashboard, start, and the brew record
+
+Written after S2; see [S2-RESULTS.md](S2-RESULTS.md) and
+[OFFICIAL-APP-NOTES.md](OFFICIAL-APP-NOTES.md).
+
+**Outcome.** A page served by the hub that follows the machine: what it is
+doing now, the recipe library, past brews, and a console. From it a person can
+load a recipe, **start the brew**, and stop it. Every brew the hub sees is
+recorded with its weight and water curves. This is the first slice that can
+dispense water.
+
+### Start and stop (safety invariants 1 and 3)
+
+- `gate.py` gets two more sets: `STOP = {40519}` and `START = {8002}`. Load,
+  cancel and stop codes stay always allowed on FFE1. **8002 passes only while
+  a start permit is held**: a context variable set by `Machine.start()` for
+  the single `send_start()` call and cleared after it. Any other write of 8002
+  is refused as before, including the library's own `send_brew`/`brew()`.
+  Resume (40524), pause, grinder and slot codes stay in no list.
+- `Machine.start(ticket)`, under the lock, refuses unless: the state is
+  `armed`; the ticket equals the one issued by the load (compared with
+  `hmac.compare_digest`) and has not expired; and no cup-off event is the
+  latest cradle event (below). The ticket is consumed before anything is
+  sent, so a start can never be repeated; if the machine refuses the start,
+  the recipe has to be cancelled and loaded again. The ticket is already void
+  when the machine leaves the recipe screen or another load happens (S1).
+- `Machine.stop()` sends 40519 and is accepted only while a brew is running.
+- `POST /api/machine/start` (body: the ticket) and `POST /api/machine/stop`.
+  REST only, bearer token required as for every non-GET. **Not MCP tools.**
+- The dashboard's start button opens a confirmation that names the recipe and
+  shows the dose, ratio and total water as they will be sent; the ticket the
+  confirmation uses is the one from the load that the page itself made or, for
+  a load made elsewhere (an assistant), the page asks the hub to cancel and
+  load again rather than start something it did not load. A ticket is never
+  put in `GET /api/state` or the event stream.
+
+### Cup presence
+
+xbloom-py notes two cradle notifications it has seen, 9002 (cup on) and 9008
+(cup off). The hub keeps the latest as `cup: true | false | null`. A start is
+refused when it is `false`; when it is `null` (no event seen this session) the
+start is allowed and the dashboard says the cup is unconfirmed. Whether these
+events arrive on this machine is unverified and is recorded in the hardware
+run; the scale reading is not used (it stays tared, S1/S2).
+
+### The brew record
+
+A brew begins when the hub's start is accepted, or when the machine reports
+brewing by itself (started at the knob); it ends on 40512 (finished), 40513
+(abandoned), a return to home, a stop, a link loss, or 15 minutes. While one
+is open the state is `brewing`.
+
+Each record is one JSON file under `data/brews/`: when it started, how it
+ended, the recipe as checked and as sent (or null for a brew the hub did not
+load), every weight (20501) and water (40523) reading with its time, and every
+other decoded notification with its time. The envelope named sqlite for
+history; one file per brew needs no schema and no query, and nothing in S3
+asks a question across brews that a directory listing cannot answer.
+`GET /api/brews` lists them, `GET /api/brews/{id}` returns one. The snapshot
+and the event stream gain `water_ml`, `cup` and the open brew's id, start time
+and current pour.
+
+### The page
+
+Static files in the package, served at `/`: `index.html`, one `app.js`, one
+`style.css`. No build step, no framework, no CDN.
+
+- **Home** follows the state. Offline: why. Idle or asleep: last recipe, a
+  way to choose one. Armed: the recipe, cup status, Start and Cancel. Brewing:
+  pour n of m, elapsed time, water and coffee so far, the live curve, Stop.
+  Finished: the curve and the totals.
+- **Recipes**: the library; a recipe's pours as the official app lays them out
+  (share of the total, volume, temperature, flow), with what will be sent, the
+  planned timeline, and Load and Delete. No editor: recipes are written
+  through Claude Code.
+- **History**: past brews; one brew's curve against its recipe's planned
+  water line with each pour's actual start marked; two brews overlaid.
+- **Console**: link state and reason, release and acquire, the live event
+  log, and the codes the gate passed.
+
+The official app's real screens (its store listing) are the reference for
+structure: dark surface, large numerals, the brew screen's "pours n/m",
+elapsed time and two-series chart (water, coffee). Its logo, photographs and
+artwork are not used. What it lacks and this adds: the planned line under the
+curve, actual pour times, comparison between brews, the console. Interface
+text is Traditional Chinese.
+
+**Security (P1-3, P1-4, P2-1).** Every response carries
+`Content-Security-Policy: default-src 'self'; script-src 'self'; style-src
+'self'; img-src 'self' data:; object-src 'none'; base-uri 'none';
+frame-ancestors 'none'`, so there is no inline script or style. Every string
+that comes from a recipe or the machine is put into the page with
+`textContent`; nothing is assigned to `innerHTML` from data. The token arrives
+once in the URL fragment (`/#t=…`), is moved to `localStorage` and removed
+from the address bar; it is sent only in the `Authorization` header. The
+event stream stays unauthenticated and read-only.
+
+**Reaching it from a phone.** The hub binds to `127.0.0.1` by default. For
+the LAN, `XBLOOM_BIND=0.0.0.0` with the Mac's address and `.local` name added
+to `XBLOOM_ALLOWED_HOSTS`; the page says so in `docs/DASHBOARD.md`.
+
+### Tests (no hardware)
+
+- Gate: 8002 is refused outside a permit on every path, including through the
+  listener's own `send_start`, and passes inside one; 40524 and the other
+  movers are still refused inside a permit.
+- Start: refused with a wrong, reused or expired ticket, after a cancel, after
+  another load, when not armed, and when the last cradle event is cup-off;
+  accepted once otherwise; not present in the MCP tool list.
+- The simulator gains a brew: after a start it reports brewing, pour events,
+  rising water and weight, and finished. A test checks the record written for
+  it, for a stop, and for a brew started without the hub.
+- The page: served with the CSP header; `index.html` contains no inline
+  script, inline style or `on…=` attribute; `app.js` assigns no data to
+  `innerHTML` (checked by reading the source in the test, and by loading a
+  recipe named `<img src=x onerror=alert(1)>` in a real browser against the
+  simulator and seeing it as text).
+
+### Observed in a browser (no hardware)
+
+The dashboard is driven against the simulator in a real browser through
+load, start, a simulated brew, stop, history and compare, at phone width and
+desktop width, and the screens are looked at.
+
+### Observed on the machine (user present)
+
+1. **Harmless start.** The S0 recipe (grinder off, 5 g, one 25 ml pour at
+   20 °C), no beans, dripper and empty cup in place. Load and start from the
+   dashboard. Expected: 25 ml of unheated water, the hub writes 8002 once, the
+   page follows the brew, a record is written. The run notes whether 9002 and
+   9008 arrive when the cup is lifted and put back before the load.
+2. **Stop.** The same recipe with a longer pour; start, then Stop from the
+   dashboard. Expected: the machine stops and returns to home; the record
+   ends as stopped. If 40519 does not stop it, the cup is in place and the
+   pour is at most 25 ml of unheated water.
+3. **A real brew**, when the user wants a coffee: a real recipe, everything a
+   brew needs in place, started from the dashboard, watched on the page.
+   This is the first measurement of pour timing against the plan.
+
+Step 1 is the first time anything in this project sends a start. It is not
+attempted with nobody at the machine.
+
+**Non-goals.** A recipe editor; pause and resume; start or stop over MCP;
+Home Assistant; Docker; anything beyond the one shared token.
+
+**Rollback.** New files, and additive changes to `gate.py`, `machine.py`,
+`app.py` and `sim.py`. Without a start permit the gate behaves as in S2.
+
 ## S0 — prove the radio path
 
 Done 2026-11-14: [S0-RESULTS.md](S0-RESULTS.md). The text below is the slice
