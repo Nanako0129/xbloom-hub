@@ -147,23 +147,25 @@ const GLYPHS = {
 
 function dots(text, label) {
   let x = 0;
-  const circles = [];
+  const circles = [], widths = [];
   for (const char of String(text)) {
     const rows = (GLYPHS[char] || GLYPHS["-"]).split(" ");
     const width = rows[0].length;
+    widths.push(width);
     rows.forEach((row, y) => [...row].forEach((bit, dx) => {
       circles.push(svg("circle", { cx: x + dx + 0.5, cy: y + 0.5, r: 0.36, class: bit === "1" ? "on" : "off" }));
     }));
     x += width + 1;
   }
-  return svg("svg", { viewBox: `0 0 ${Math.max(1, x - 1)} 7`, class: "dots", role: "img", "aria-label": label || String(text) }, circles);
+  // data-grid: the glyph widths, so two readouts can be told to have their dots in the same places.
+  return svg("svg", { viewBox: `0 0 ${Math.max(1, x - 1)} 7`, class: "dots", role: "img", "aria-label": label || String(text), "data-grid": widths.join(",") }, circles);
 }
 
 // Put new dots where old ones are. When the grid is the same size only the
 // dots that differ change class, and the stylesheet turns them over.
 function swapDots(holder, fresh) {
   const old = holder.querySelector("svg.dots");
-  if (!old || old.getAttribute("viewBox") !== fresh.getAttribute("viewBox")) {
+  if (!old || old.dataset.grid !== fresh.dataset.grid || old.children.length !== fresh.children.length) {
     if (old) old.replaceWith(fresh); else holder.prepend(fresh);
     return;
   }

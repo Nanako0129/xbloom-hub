@@ -439,12 +439,14 @@ a.recipe:active, .tile:active, button.tile:active { transform: translateY(0) sca
 .dots circle { transition: fill var(--quick) ease; }
 
 /* A recipe's pours fill in from the left. */
-a.recipe svg rect, div.recipe svg rect { transform-box: fill-box; transform-origin: left center;
-  animation: grow 520ms var(--ease) both; }
+a.recipe svg rect, div.recipe svg rect { transform-box: fill-box; transform-origin: left center; }
+#view[data-enter] .recipe svg rect { animation: grow 520ms var(--ease) both; }
 
 /* Curves are drawn; dashed and second curves fade in. */
-.chart path.drawn { stroke-dasharray: 1; stroke-dashoffset: 0; animation: draw var(--draw) ease-out both; }
-.chart path.faded, .chart .mark { animation: fade var(--draw) ease-out both; }
+/* Like every arrival, only when the page arrives: a chart rebuilt by a redraw is simply there. */
+.chart path.drawn { stroke-dasharray: 1; stroke-dashoffset: 0; }
+#view[data-enter] .chart path.drawn { animation: draw var(--draw) ease-out both; }
+#view[data-enter] .chart path.faded, #view[data-enter] .chart .mark { animation: fade var(--draw) ease-out both; }
 .chart .cursor-line, .chart .cursor-dot { transition: opacity var(--quick); }
 
 /* A lamp that is working breathes; one at rest is still. */
@@ -467,7 +469,5 @@ dialog::backdrop { animation: fade var(--settle) ease both; -webkit-backdrop-fil
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, dialog::backdrop { animation: none !important; transition: none !important; }
-  .dot-cup .steam { animation: none; }
-  button, a.recipe, #tabs a { transition: none; }
   button:active, a.recipe:active { transform: none; }
 }
