@@ -35,7 +35,7 @@ function bundleAllowList(): Plugin {
 
 export default defineConfig({
   plugins: [svelte(), bundleAllowList()],
-  // Relative asset paths: the same build works at /next/ and at / (S3c).
+  // Relative asset paths: the build does not depend on the address it is served at.
   base: "./",
   build: {
     outDir: "../src/xbloom_hub/web",

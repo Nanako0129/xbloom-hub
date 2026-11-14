@@ -783,6 +783,11 @@ animations replay unless each is worked around by hand, and every chart
 feature (zoom, replay, annotations, a calendar) has to be drawn from
 nothing. What the owner asked for next is mostly those.
 
+**Status (2026-11-14).** Steps 1 to 6 done (pull requests #12 to #18 and
+the switch). `/` serves the built page; `static/` is gone. Left: the
+owner's look at 2560 px and on the phone, and one load and start of the
+25 ml test recipe on the machine.
+
 **Outcome.** The same dashboard, at the same address, built from Svelte 5
 components in TypeScript with ECharts for the charts, served by the hub as
 static files under the same Content-Security-Policy, and covered by browser

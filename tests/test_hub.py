@@ -569,3 +569,12 @@ def test_creating_a_recipe_never_replaces_a_file(tmp_path):
             raise AssertionError(f"{slug} was replaced")
     assert (tmp_path / "handmade.yaml").read_text() == "not: a recipe\n"
     assert store.put("a", {**recipe, "name": "C"})["name"] == "C"      # an edit still replaces
+
+
+def test_the_hub_refuses_to_start_without_a_built_dashboard(tmp_path, monkeypatch):
+    """Never an empty site (docs/PLAN.md, S3c): the refusal names the build command."""
+    import xbloom_hub.__main__ as entry
+    monkeypatch.setattr(entry, "WEB_DIR", tmp_path / "web")
+    with pytest.raises(SystemExit) as stopped:
+        entry.main()
+    assert "frontend/npm.sh" in str(stopped.value) and "not built" in str(stopped.value)
