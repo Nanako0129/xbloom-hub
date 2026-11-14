@@ -16,6 +16,9 @@ export const live = $state({
 // Reports come several times a second; a longer silence means this page missed
 // some (a phone put the page in the background, the stream reconnected).
 const MISSED_S = 3;
+// The record's times are to 0.01 s, the stream's to 0.1 s: what the page heard
+// within this of the record's end is the same reading, not a new one.
+const SEAM_S = 0.5;
 
 const JOINED_LATE_S = 2;     // a brew this far along when first seen was running before the page
 
@@ -25,14 +28,14 @@ async function backfill(id: string): Promise<void> {
   let record: BrewRecord;
   try { record = await api<BrewRecord>("GET", `/api/brews/${encodeURIComponent(id)}`); } catch { return; }
   if (live.id !== id) return;
-  const merged = (recorded: Point[], heard: Point[]) => {
-    const end = recorded.length ? recorded[recorded.length - 1][0] : -Infinity;
-    return recorded.concat(heard.filter((p) => p[0] > end));
-  };
+  const after = (end: number | undefined) => (time: number) => time > (end ?? -Infinity) + SEAM_S;
+  const merged = (recorded: Point[], heard: Point[]) =>
+    recorded.concat(heard.filter((p) => after(recorded.at(-1)?.[0])(p[0])));
   live.water = merged(record.samples.water, live.water);
   live.weight = merged(record.samples.weight, live.weight);
-  live.startAt = { ...startsByIndex(record), ...live.startAt };
-  live.marks = merged(pourStarts(record).map((x) => [x, 0] as Point), live.marks.map((x) => [x, 0] as Point)).map((p) => p[0]);
+  live.startAt = { ...live.startAt, ...startsByIndex(record) };
+  const starts = pourStarts(record);
+  live.marks = starts.concat(live.marks.filter(after(starts.at(-1))));
   live.gaps = record.gaps ?? [];
 }
 
@@ -44,8 +47,9 @@ follow((next) => {
     Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], startAt: {}, lastPour: brew.pour,
                           lastSeen: null, gaps: [] });
     if (brew.elapsed_s > JOINED_LATE_S) backfill(brew.id);
-  } else if (live.lastSeen !== null && brew.elapsed_s - live.lastSeen > MISSED_S) {
-    backfill(brew.id);          // this page missed reports: fill them from the record
+  } else if ((live.lastSeen !== null && brew.elapsed_s - live.lastSeen > MISSED_S)
+             || (brew.gaps ?? 0) !== live.gaps.length) {
+    backfill(brew.id);          // this page missed reports, or the hub's link had a gap: take the record
   }
   live.lastSeen = brew.elapsed_s;
   if (next.water_ml !== null) live.water.push([brew.elapsed_s, next.water_ml]);

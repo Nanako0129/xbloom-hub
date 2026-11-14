@@ -57,6 +57,8 @@ CMD_POUR_END = 40511
 # page's chart and its Stop are the same brew's. 2026-11-14: a release in the
 # middle of a brew had cut one cup into two records.
 RESUME_WINDOW_S = 180
+RESUME_CHECK_S = 20       # how long after a resume a lower pour or water count means another cup
+WATER_BACK_ML = 5.0       # a water count this far below the last one is not the same cup
 CMD_CUP_ON, CMD_CUP_OFF = 9002, 9008
 CMD_WEIGHT, CMD_WATER, CMD_STATUS = 20501, 40523, 40521
 
@@ -159,6 +161,9 @@ class Machine:
                 "id": brew["id"], "started_at": brew["started_at"],
                 "elapsed_s": round(time.monotonic() - brew["_t0"], 1),
                 "pour": brew["pour"], "slug": brew["slug"],
+                # A page that sees this change fetches the record: a short drop
+                # shows no jump in elapsed_s, yet its gap must break the line.
+                "gaps": len(brew.get("gaps") or []),
                 "recipe_name": (brew["recipe"] or {}).get("name"),
             },
             "error": self._error,
@@ -222,7 +227,7 @@ class Machine:
             held = self._take_suspended()
             if held is not None and activity == _FINISHED:
                 self._resume_brew(held)
-                self._close_brew("finished")
+                self._close_brew("stopped" if held["stop_sent"] else "finished")
             # Otherwise its file already says link_lost.
 
         # A brew opens only on what the machine reports.
@@ -237,6 +242,8 @@ class Machine:
             elif changed and after_start and activity not in _NOT_A_BREW:
                 self._open_brew(f"activity_{activity}_after_start")
 
+        if self._brew is not None:
+            self._not_another_cup(decoded)
         if self._brew is not None:
             self._record(decoded)
             if cmd == CMD_FINISHED:
@@ -280,11 +287,41 @@ class Machine:
         """The link is gone with a brew running: keep it for a reconnect. Its
         file says link_lost meanwhile, so a hub that dies here leaves it closed."""
         brew = self._brew
-        gap_from = round(time.monotonic() - brew["_t0"], 2)
+        # The silence began at the last reading, not when the drop was noticed.
+        heard = [s[-1][0] for s in brew["samples"].values() if s] + [e[0] for e in brew["events"][-1:]]
+        gap_from = max(heard) if heard else round(time.monotonic() - brew["_t0"], 2)
         self._close_brew("link_lost")
         brew["_gap_from"] = gap_from
         self._suspended = (brew, time.monotonic())
         log.info("brew %s held for a reconnect", brew["id"])
+
+    def _not_another_cup(self, decoded: dict) -> None:
+        """Soon after a resume: a pour index or a water count lower than when
+        the link dropped is a different cup. The resumed record goes back to
+        link_lost, and a new one opens for this cup."""
+        brew = self._brew
+        was = brew.get("_was")
+        if was is None:
+            return
+        pour, water, until = was
+        if time.monotonic() > until:
+            brew.pop("_was", None)
+            return
+        lower_pour = (decoded.get("cmd") == CMD_POUR_START and pour is not None
+                      and isinstance(decoded.get("pour_index"), int) and decoded["pour_index"] < pour)
+        lower_water = (decoded.get("cmd") == CMD_WATER and water is not None
+                       and isinstance(decoded.get("water_ml"), (int, float))
+                       and decoded["water_ml"] < water - WATER_BACK_ML)
+        if not (lower_pour or lower_water):
+            return
+        gap_from, gap_to = brew["gaps"].pop()
+        for series in brew["samples"].values():
+            series[:] = [p for p in series if p[0] <= gap_from]
+        brew["events"] = [e for e in brew["events"] if e[0] <= gap_from]
+        brew.pop("_was", None)
+        self._close_brew("link_lost")
+        log.info("brew %s was another cup after the gap: a new record opens", brew["id"])
+        self._open_brew("another_cup_after_gap")
 
     def _take_suspended(self):
         """The brew held across a link drop, if still within the window."""
@@ -296,8 +333,14 @@ class Machine:
     def _resume_brew(self, brew: dict) -> None:
         brew.setdefault("gaps", []).append([brew.pop("_gap_from"), round(time.monotonic() - brew["_t0"], 2)])
         brew["reason"] = brew["ended_at"] = brew["duration_s"] = None
+        water = brew["samples"]["water"]
+        # Where this cup was: a pour or a water count lower than this, soon
+        # after the link is back, is another cup started in the gap.
+        brew["_was"] = (brew["pour"], water[-1][1] if water else None,
+                        time.monotonic() + RESUME_CHECK_S)
         self._brew = brew
         self._finished = False
+        self._weight = None               # read again through the carry, not raw
         self._clear_load()
         self._started_at = None
         self._water = None
@@ -528,11 +571,14 @@ class Machine:
         """Drop the link and stay off it, so the phone app can have the machine.
         Not with a recipe loaded or a brew running: that would cut the brew's
         record and take its Stop away."""
-        if self.state in ("armed", "brewing"):
-            raise NotReady(f"the link is not released while {self.state}")
-        self._released = True
-        if self._lifecycle is not None:
-            self._lifecycle.put_nowait(("released", {}))
+        # Under the lock that load() and start() hold: no load arms the machine
+        # between this check and the release.
+        async with self._lock:
+            if self.state in ("armed", "brewing"):
+                raise NotReady(f"the link is not released while {self.state}")
+            self._released = True
+            if self._lifecycle is not None:
+                self._lifecycle.put_nowait(("released", {}))
         # Return only once the link is closed, so the phone app can connect.
         try:
             await asyncio.wait_for(self._no_session.wait(), 10)

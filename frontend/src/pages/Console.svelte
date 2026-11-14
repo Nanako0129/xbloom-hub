@@ -55,7 +55,7 @@
           {#if s.state === "released"}
             <button disabled={work.busy} onclick={() => act(acquire)}>{t("action.acquire")}</button>
           {:else}
-            <button class="quiet" disabled={work.busy || s.state === "brewing"}
+            <button class="quiet" disabled={work.busy || s.state === "brewing" || s.state === "armed"}
               onclick={async () => { if (await ask({ title: t("release.title"), body: t("release.body"), yes: t("action.release") })) act(release); }}>{t("action.release")}</button>
           {/if}
         </div>

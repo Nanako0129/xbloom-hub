@@ -91,7 +91,7 @@ export interface Snapshot {
   water_ml: number | null;
   cup: boolean | null;
   recipe: { slug: string; name: string } | null;
-  brew: { id: string; elapsed_s: number; pour: number | null; slug: string | null; recipe_name: string | null } | null;
+  brew: { id: string; elapsed_s: number; pour: number | null; slug: string | null; recipe_name: string | null; gaps?: number } | null;
   error: string | null;
   load_id: string | null;
   water_enough?: number;

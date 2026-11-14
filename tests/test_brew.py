@@ -905,3 +905,54 @@ def test_a_passing_value_on_reconnecting_does_not_drop_the_held_brew(tmp_path, m
         task.cancel()
 
     asyncio.run(run())
+
+
+def test_another_cup_after_the_gap_gets_its_own_record(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 40510, "pour_index": 1})
+        raw({"cmd": 40523, "water_ml": 150000.0})
+        first = machine.snapshot()["brew"]["id"]
+        last_water_t = brews.get(first) and machine._brew["samples"]["water"][-1][0]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 35)
+        old = machine._listener
+        drop_link(machine)
+        raw = await reconnected(machine, old)
+        assert machine.snapshot()["brew"]["id"] == first and machine.snapshot()["brew"]["gaps"] == 1
+        raw({"cmd": 40523, "water_ml": 20000.0})               # far less water: another cup
+        second = machine.snapshot()["brew"]["id"]
+        assert second != first
+        old_record = brews.get(first)
+        assert old_record["reason"] == "link_lost" and not old_record.get("gaps")
+        assert [p[1] for p in old_record["samples"]["water"]] == [150.0]
+        assert machine._brew["samples"]["water"][-1][1] == 20.0
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_stop_sent_before_the_drop_is_stopped_when_found_finished(tmp_path, monkeypatch):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        machine._listener._brewing.cancel()
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 40523, "water_ml": 30000.0})
+        machine._brew["stop_sent"] = True
+        first = machine.snapshot()["brew"]["id"]
+        monkeypatch.setattr(type(machine._listener), "start_activity", 36)
+        old = machine._listener
+        drop_link(machine)
+        await reconnected(machine, old)
+        record = brews.get(first)
+        assert record["reason"] == "stopped"
+        # The gap starts at the last reading, not when the drop was noticed.
+        assert record["gaps"][0][0] == record["samples"]["water"][-1][0]
+        task.cancel()
+
+    asyncio.run(run())

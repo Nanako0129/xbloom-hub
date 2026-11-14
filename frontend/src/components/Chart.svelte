@@ -65,11 +65,14 @@
   let zoomPct = $state<[number, number] | null>(null);
 
   const shown = $derived(lines.filter((line) => !hidden[line.key] && line.points.length));
+  // Inside a gap there is no reading: nothing is interpolated across it.
+  const inGap = (line: Line, time: number) => (line.gaps ?? []).some(([from, to]) => time > from && time < to);
+  const readingOf = (line: Line, time: number) => (inGap(line, time) ? null : valueAt(line.points, time));
   // Replaying: the measured curves end at `upto`, the plan stays whole.
   const drawn = $derived(upto === null ? shown : shown.map((line) => {
     if (line.kind === "plan") return line;
     const before = line.points.filter((p) => p[0] <= upto);
-    const value = valueAt(line.points, upto);
+    const value = readingOf(line, upto);
     const last = before[before.length - 1];
     return { ...line, points: value !== null && (!last || last[0] < upto) && line.points[0][0] <= upto
       ? [...before, [upto, value] as [number, number]] : before };
@@ -77,7 +80,7 @@
   // The pointer first, then a mark that was clicked, then the replay.
   const readAt = $derived(at ?? pinned ?? upto);
   const reading = $derived(readAt === null ? [] : drawn.map((line) => ({
-    line, value: valueAt(line.points, readAt),
+    line, value: readingOf(line, readAt),
   })));
   const pinnedMark = $derived(at === null && pinned !== null ? marks.find((m) => m.t === pinned) : undefined);
   // The axis is as long as the whole brew, whatever a replay has drawn so far.

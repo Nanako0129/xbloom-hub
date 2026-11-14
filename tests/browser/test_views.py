@@ -299,3 +299,9 @@ def test_on_a_phone_the_tab_bar_holds_no_brand(ui, hub):
     expect(ui.locator("#side .brand")).to_be_hidden()
     ui.set_viewport_size({"width": 1400, "height": 900})
     expect(ui.locator("#side .brand")).to_be_visible()
+
+
+def test_the_link_cannot_be_released_with_a_recipe_loaded(ui, hub):
+    from .test_dashboard import load_from_page
+    load_from_page(ui, hub, "short")
+    expect(ui.get_by_role("button", name="Release the link").first).to_be_disabled()
