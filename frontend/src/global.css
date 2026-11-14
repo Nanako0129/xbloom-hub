@@ -616,7 +616,9 @@ button.choice-item svg { width: 34px; height: 34px; fill: none; stroke: currentC
 .community-search select, .community-search input { width: 100%; box-sizing: border-box; min-width: 0; height: 42px; }
 
 /* The logo beside the name in the sidebar. */
-#side .brand { display: flex; align-items: center; gap: 10px; }
+/* Only where the sidebar shows the name (1040 px and wider); on a phone the
+   brand stays hidden, as line 264 says, and the bar is tabs only. */
+@media (min-width: 1040px) { #side .brand { display: flex; align-items: center; gap: 10px; } }
 #side .brand img { width: 28px; height: 28px; border-radius: 7px; flex: none; }
 
 /* ==== batch 2: replay, marks, history, calendar, drag, per-pour progress ======= */
