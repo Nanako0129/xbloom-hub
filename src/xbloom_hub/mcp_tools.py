@@ -73,7 +73,8 @@ def build_server(machine: Machine, store: RecipeStore) -> MCPServer:
             return _failure(err)
 
     @server.tool(description="The machine's current state: offline, idle, asleep, armed "
-                             "(a recipe is loaded and waiting), busy or released. weight_g is "
+                             "(a recipe is loaded and waiting), brewing, busy or released. "
+                             "weight_g is "
                              "the scale's reading after its last tare and is 0 with a cup on "
                              "it once a recipe has been loaded; it does not show whether a "
                              "cup is present.")

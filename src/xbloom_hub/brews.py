@@ -59,6 +59,8 @@ class BrewStore:
                 record = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
+            if not isinstance(record, dict):
+                continue
             samples = record.get("samples") or {}
             water = samples.get("water") or []
             out.append({

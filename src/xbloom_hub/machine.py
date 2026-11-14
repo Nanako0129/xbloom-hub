@@ -6,9 +6,8 @@ in the hub asks this object; nothing else touches the radio.
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import datetime
 import hmac
-import json
 import logging
 import secrets
 import time
@@ -209,13 +208,27 @@ class Machine:
         self._ticket = None
 
     # ---- brew record ---------------------------------------------------- #
+    @staticmethod
+    def _now() -> str:
+        # With a colon in the offset: what every browser's Date accepts.
+        return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
     def _open_brew(self, opened_by: str) -> None:
         held = self._held or {}
+        hub_started = (self._started_at is not None
+                       and time.monotonic() - self._started_at < START_WINDOW_S)
+        # The load is over whichever signal said so: a pour can be reported
+        # while the activity value still reads 31, and the ticket must not
+        # outlive the brew (invariant 3). The start window closes here too, or
+        # an unknown activity value after a short brew would open a second
+        # record for something that is not a brew.
+        self._clear_load()
+        self._started_at = None
         self._brew = {
             "id": self._brews.new_id() if self._brews else time.strftime("%Y%m%d-%H%M%S-none"),
-            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "started_at": self._now(),
             "ended_at": None, "reason": None, "duration_s": None,
-            "opened_by": opened_by, "hub_started": self._started_at is not None,
+            "opened_by": opened_by, "hub_started": hub_started,
             "stop_sent": False, "pour": None,
             "slug": held.get("slug"), "recipe": held.get("recipe"),
             "as_sent": held.get("as_sent"),
@@ -247,7 +260,7 @@ class Machine:
     def _close_brew(self, reason: str) -> None:
         brew = self._brew
         brew["reason"] = reason
-        brew["ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        brew["ended_at"] = self._now()
         brew["duration_s"] = round(time.monotonic() - brew["_t0"], 1)
         self._save_brew()
         log.info("brew %s closed (%s)", brew["id"], reason)
@@ -368,12 +381,12 @@ class Machine:
                     return ready
         finally:
             self._lifecycle = None
+            if self._brew is not None:
+                self._close_brew("link_lost")       # before the listener goes: no gap
             self._listener = None
             try:
                 await listener.stop()
             finally:
-                if self._brew is not None:
-                    self._close_brew("link_lost")
                 self._held = None
                 self._started_at = None
                 self._activity = None
@@ -436,12 +449,10 @@ class Machine:
                 # session is gone, so there is nothing to issue a ticket for.
                 self._clear_load()
                 raise NotReady("the link dropped during the load")
-            digest = hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
+            # One ticket per load. What it stands for cannot change under it:
+            # a loaded recipe can be neither saved over nor deleted.
             ticket = secrets.token_urlsafe(16)
-            self._ticket = {
-                "ticket": ticket, "recipe_sha256": digest,
-                "expires": time.monotonic() + TICKET_TTL_S,
-            }
+            self._ticket = {"ticket": ticket, "expires": time.monotonic() + TICKET_TTL_S}
             if not await self._wait_for(lambda: self.state == "armed", 5):
                 # The frames were accepted but the machine has not said it is
                 # waiting. Do not report a load, and do not keep the slug
@@ -462,7 +473,7 @@ class Machine:
 
         Changes no state by itself: the machine's own reports open the brew.
         """
-        from xbloom.ble import CMD_EXECUTE, CommandUnanswered, _build_frame
+        from xbloom.ble import CMD_EXECUTE, CommandRefused, CommandUnanswered, _build_frame
 
         async with self._lock:
             if self.state != "armed":
@@ -479,11 +490,19 @@ class Machine:
             # Consumed before anything is sent: a start is never repeated.
             self._ticket = None
             self._started_at = time.monotonic()
-            with gate.start_permit():
-                # send_confirmed re-sends only while the machine is asleep, so
-                # 8002 is written once while it is awake.
-                answered = await self._listener.send_confirmed(
-                    "execute", _build_frame(CMD_EXECUTE))
+            try:
+                with gate.start_permit():
+                    # One write: the permit is spent by it, and send_confirmed
+                    # re-sends only while the machine is asleep.
+                    answered = await self._listener.send_confirmed(
+                        "execute", _build_frame(CMD_EXECUTE))
+            except CommandRefused:
+                self._started_at = None     # it did not start; no window, no credit
+                raise
+            except (CommandUnanswered, gate.GateRefused):
+                raise
+            except Exception as err:  # noqa: BLE001  a link error, not a reply
+                raise NotReady(f"the link failed during the start: {type(err).__name__}") from err
             if not answered:
                 raise CommandUnanswered("execute")
             await self._wait_for(lambda: self._brew is not None, 3)
@@ -491,15 +510,28 @@ class Machine:
 
     async def stop(self) -> dict:
         """Stop the running brew (40519)."""
-        from xbloom.ble import CMD_BREW_STOP, CommandUnanswered, _build_frame
+        from xbloom.ble import CMD_BREW_STOP, CommandRefused, CommandUnanswered, _build_frame
 
-        if self._brew is None:
+        brew, listener = self._brew, self._listener
+        if brew is None or listener is None:
             raise NotReady(f"no brew to stop while {self.state}")
         if self._stop_lock.locked():
             raise NotReady("a stop is already on its way")
         async with self._stop_lock:
-            self._brew["stop_sent"] = True
-            if not await self._listener.send_confirmed("brew_stop", _build_frame(CMD_BREW_STOP)):
+            # Marked before the send, because the machine can report home
+            # before the send returns; taken back if the stop was not taken, so
+            # a brew the hub never stopped is not recorded as stopped.
+            brew["stop_sent"] = True
+            try:
+                answered = await listener.send_confirmed("brew_stop", _build_frame(CMD_BREW_STOP))
+            except (CommandRefused, gate.GateRefused):
+                brew["stop_sent"] = False
+                raise
+            except Exception as err:  # noqa: BLE001  a link error, not a reply
+                brew["stop_sent"] = False
+                raise NotReady(f"the link failed during the stop: {type(err).__name__}") from err
+            if not answered:
+                brew["stop_sent"] = False
                 raise CommandUnanswered("brew_stop")
             await self._wait_for(lambda: self._brew is None, 5)
             return self.snapshot()

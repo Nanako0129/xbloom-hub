@@ -62,8 +62,9 @@ These come from the security review below; the IDs point at its findings.
    frames 2–4 of `build_brew_frames` (8102, 8104, 8001 or 8004) over the held
    session. `brew()`, `send_brew()` and `send_start()` are never called on the
    load path; `brew()` is never called at all.
-3. **Start gate (P1-5).** A load returns a one-time ticket bound to a hash of
-   the recipe. Start must present it; the ticket is consumed on first use,
+3. **Start gate (P1-5).** A load returns a one-time ticket for that load (S3
+   dropped the recipe hash: a loaded recipe can be neither saved over nor
+   deleted, so the ticket already stands for exactly what was sent). Start must present it; the ticket is consumed on first use,
    expires after 10 minutes (configurable), and is void if since the load the
    machine left the recipe screen, started brewing, or received another load.
    Start is a REST endpoint with a confirm step in the dashboard and is not an

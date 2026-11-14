@@ -63,6 +63,13 @@ function button(label, icon, attrs) {
 // replaceChildren() would print a null child as the word "null".
 function show(view, ...nodes) { view.replaceChildren(...nodes.flat().filter(Boolean)); }
 
+// For views that fetch: a painter that does nothing once the address has
+// changed, so a slow answer cannot draw one page over another.
+function painter(view) {
+  const here = location.hash;
+  return (...nodes) => { if (location.hash === here) show(view, ...nodes); };
+}
+
 const clock = (seconds) => {
   const s = Math.max(0, Math.round(seconds || 0));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -79,7 +86,7 @@ const timeOfDay = (date) => date.toLocaleTimeString(locale());
 // address bar. It is only ever sent in the Authorization header.
 const TOKEN_KEY = "xbloom-hub-token";
 (function takeToken() {
-  const match = location.hash.match(/^#t=([A-Za-z0-9_\-.~]+)$/);
+  const match = location.hash.match(/^#t=([A-Za-z0-9_\-.~+\/=]+)$/);
   if (!match) return;
   try { localStorage.setItem(TOKEN_KEY, match[1]); } catch (_) { /* private mode */ }
   history.replaceState(null, "", location.pathname + "#/");
@@ -193,7 +200,12 @@ let busy = false;            // a request is in flight
 let library = null;          // recipes with what a card shows
 let lastBrew = null;         // the newest brew record, for the desktop summary
 let lastBrewAsked = "";      // which machine state it was last fetched in
-const plans = new Map();     // slug -> {recipe, as_sent, plan}
+// slug -> {recipe, as_sent, plan}; null while it is being fetched; false when
+// the fetch failed (so it is not asked for again on every snapshot).
+// A recipe can be changed elsewhere at any time it is not loaded, so an entry
+// is trusted only for a recipe that is loaded or brewing: it is fetched anew
+// whenever the machine arms, and a recipe's own page always fetches.
+const plans = new Map();
 const live = { id: null, water: [], weight: [], marks: [], lastPour: null };
 const log = [];              // console: [Date, snapshot] of each change, newest last
 const picked = new Set();    // history: brews chosen to compare
@@ -219,12 +231,19 @@ function onSnapshot(next) {
   if (next.state !== "armed") ticket = null;
   const brew = next.brew;
   if (brew) {
-    if (live.id !== brew.id) Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], lastPour: null });
+    if (live.id !== brew.id) {
+      // lastPour starts at the current pour: joining a brew is not a pour starting.
+      Object.assign(live, { id: brew.id, water: [], weight: [], marks: [], lastPour: brew.pour });
+      if (brew.elapsed_s > 2) backfill(brew.id);       // opened or reloaded mid-brew
+    }
     if (next.water_ml !== null) live.water.push([brew.elapsed_s, next.water_ml]);
     if (next.weight_g !== null) live.weight.push([brew.elapsed_s, next.weight_g]);
     if (brew.pour !== live.lastPour) { live.lastPour = brew.pour; live.marks.push(brew.elapsed_s); }
   }
   const slug = (next.recipe && next.recipe.slug) || (brew && brew.slug);
+  // The machine has just armed: whatever this page had cached for that recipe
+  // may predate an edit. Fetch what is stored now; it cannot change while loaded.
+  if (slug && next.state === "armed" && (!before || before.state !== "armed")) plans.delete(slug);
   if (slug && !plans.has(slug)) loadPlan(slug);
   renderStatus();
   // Every view: the ones that fetch redraw only when their key changes, and
@@ -251,7 +270,20 @@ function fetchLastBrew() {
 
 async function loadPlan(slug) {
   plans.set(slug, null);
-  try { plans.set(slug, await api("GET", `/api/recipes/${encodeURIComponent(slug)}/plan`)); } catch (_) { plans.delete(slug); }
+  try { plans.set(slug, await api("GET", `/api/recipes/${encodeURIComponent(slug)}/plan`)); } catch (_) { plans.set(slug, false); }
+  render();
+}
+
+// The part of a running brew that happened before this page was looking.
+async function backfill(id) {
+  let record;
+  try { record = await api("GET", `/api/brews/${encodeURIComponent(id)}`); } catch (_) { return; }
+  if (live.id !== id) return;
+  const first = (points) => (points.length ? points[0][0] : Infinity);
+  live.water = record.samples.water.filter((p) => p[0] < first(live.water)).concat(live.water);
+  live.weight = record.samples.weight.filter((p) => p[0] < first(live.weight)).concat(live.weight);
+  const starts = record.events.filter((e) => e[1].cmd === 40510).map((e) => e[0]);
+  live.marks = starts.filter((time) => time < first(live.marks.map((m) => [m]))).concat(live.marks);
   render();
 }
 
@@ -470,6 +502,7 @@ function updateBrewing() {
 }
 
 async function load(slug) {
+  plans.delete(slug);       // what is about to be loaded is what the hub holds now
   const loaded = await api("POST", "/api/machine/load", { slug });
   ticket = { slug, value: loaded.ticket };
   location.hash = "#/";
@@ -478,7 +511,17 @@ async function load(slug) {
 async function confirmStart(info) {
   const body = [h("p", {}, t("start.body")), recipeFacts(info), h("dl", { class: "facts" }, cupLine())];
   if (await ask(t("start.title", { name: info.recipe.name }), body, t("action.start"))) {
-    act(async () => { const value = ticket && ticket.value; ticket = null; await api("POST", "/api/machine/start", { ticket: value }); });
+    act(async () => {
+      try {
+        await api("POST", "/api/machine/start", { ticket: ticket && ticket.value });
+        ticket = null;
+      } catch (error) {
+        // The hub keeps the ticket when it refuses for a missing cup; in every
+        // other case it is spent or void, and so is ours.
+        if (error.code !== "no_cup") ticket = null;
+        throw error;
+      }
+    });
   }
 }
 
@@ -504,19 +547,19 @@ function ask(title, body, yes, danger) {
 
 // ---- recipes ------------------------------------------------------------------------
 async function viewRecipes(view, id) {
+  const paint = painter(view);
   if (id) return viewRecipe(view, id);
-  if (!library) { show(view, h("p", { class: "muted" }, t("loading"))); library = await api("GET", "/api/library"); }
-  show(view, h("h1", {}, t("recipes.title")),
+  if (!library) { paint(h("p", { class: "muted" }, t("loading"))); library = await api("GET", "/api/library"); }
+  paint(h("h1", {}, t("recipes.title")),
     library.length ? h("div", { class: "grid three" }, library.map(recipeCard)) : h("p", { class: "muted" }, t("recipes.empty")));
 }
 
 async function viewRecipe(view, slug) {
-  let info = plans.get(slug);
-  if (!info) {
-    show(view, h("p", { class: "muted" }, t("loading")));
-    try { info = await api("GET", `/api/recipes/${encodeURIComponent(slug)}/plan`); plans.set(slug, info); }
-    catch (error) { show(view, h("p", { class: "notice bad" }, error.message)); return; }
-  }
+  const paint = painter(view);
+  let info;
+  if (!plans.get(slug)) paint(h("p", { class: "muted" }, t("loading")));
+  try { info = await api("GET", `/api/recipes/${encodeURIComponent(slug)}/plan`); plans.set(slug, info); }
+  catch (error) { paint(h("p", { class: "notice bad" }, error.message)); return; }
   const { recipe } = info;
   const canLoad = state && (state.state === "idle" || state.state === "asleep");
   const meta = recipe.meta || {};
@@ -527,7 +570,7 @@ async function viewRecipe(view, slug) {
     .map((key) => [h("dt", {}, t(`meta.${key}`)), h("dd", {}, meta[key])]);
   if (source) metaRows.push([h("dt", {}, t("meta.source")), h("dd", {}, source)]);
   if (meta.notes) metaRows.push([h("dt", {}, t("meta.notes")), h("dd", {}, meta.notes)]);
-  show(view,
+  paint(
     flashNode(),
     h("p", {}, h("a", { href: "#/recipes" }, t("recipe.all"))),
     h("h1", {}, recipe.name || slug),
@@ -549,8 +592,9 @@ async function viewRecipe(view, slug) {
 
 // ---- history ---------------------------------------------------------------------------
 async function viewHistory(view, id) {
+  const paint = painter(view);
   if (id) return viewBrew(view, id);
-  show(view, h("p", { class: "muted" }, t("loading")));
+  paint(h("p", { class: "muted" }, t("loading")));
   const brews = await api("GET", "/api/brews");
   const items = brews.map((b) => h("li", { class: "pick" },
     h("input", { type: "checkbox", "aria-label": t("history.pick"), checked: picked.has(b.id), on: { change: (event) => {
@@ -561,7 +605,7 @@ async function viewHistory(view, id) {
       h("span", { class: "title" }, b.recipe_name || t("brew.at_machine")),
       h("span", { class: "sub num" }, [when(b.started_at), `${b.water_ml === null ? "-" : Math.round(b.water_ml)} ml`,
         b.duration_s === null ? "" : clock(b.duration_s), endingText(b.reason)].filter(Boolean).join("   ")))));
-  show(view, h("h1", {}, t("history.title")),
+  paint(h("h1", {}, t("history.title")),
     brews.length ? h("ul", { class: "list" }, items) : h("p", { class: "muted" }, t("history.empty")),
     brews.length > 1 ? h("div", { class: "actions" }, button(t("action.compare"), "layers", { id: "compare", class: "quiet", disabled: picked.size !== 2,
       on: { click: () => { location.hash = `#/compare/${[...picked].join("/")}`; } } })) : null);
@@ -571,10 +615,11 @@ const pourStarts = (record) => record.events.filter((e) => e[1].cmd === 40510).m
 const recordName = (record) => (record.recipe && record.recipe.name) || t("brew.at_machine");
 
 async function viewBrew(view, id) {
-  show(view, h("p", { class: "muted" }, t("loading")));
+  const paint = painter(view);
+  paint(h("p", { class: "muted" }, t("loading")));
   let record;
   try { record = await api("GET", `/api/brews/${encodeURIComponent(id)}`); }
-  catch (error) { show(view, h("p", { class: "notice bad" }, error.message)); return; }
+  catch (error) { paint(h("p", { class: "notice bad" }, error.message)); return; }
   const starts = pourStarts(record);
   const offset = starts.length ? starts[0] : 0;      // the plan's zero is the first pour
   const series = [{ cls: "water", points: record.samples.water }, { cls: "coffee", points: record.samples.weight }];
@@ -591,7 +636,7 @@ async function viewBrew(view, id) {
       h("td", { class: "num" }, actual === null ? "-" : clock(actual)),
       h("td", { class: "num" }, diff === null ? "-" : t("table.seconds", { sign: diff >= 0 ? "+" : "−", s: Math.abs(diff) })));
   }) : [];
-  show(view,
+  paint(
     h("p", {}, h("a", { href: "#/history" }, t("history.all"))),
     h("h1", {}, recordName(record)),
     h("div", { class: "cols" },
@@ -609,15 +654,16 @@ async function viewBrew(view, id) {
 }
 
 async function viewCompare(view, ids) {
-  show(view, h("p", { class: "muted" }, t("loading")));
+  const paint = painter(view);
+  paint(h("p", { class: "muted" }, t("loading")));
   let records;
   try { records = await Promise.all(ids.slice(0, 2).map((id) => api("GET", `/api/brews/${encodeURIComponent(id)}`))); }
-  catch (error) { show(view, h("p", { class: "notice bad" }, error.message)); return; }
+  catch (error) { paint(h("p", { class: "notice bad" }, error.message)); return; }
   if (records.length < 2) { location.hash = "#/history"; return; }
   const shifted = (record, key) => { const s = pourStarts(record)[0] || 0; return record.samples[key].map((p) => [p[0] - s, p[1]]).filter((p) => p[0] >= 0); };
   const [a, b] = records;
   const name = (record) => t("compare.name", { name: recordName(record), when: when(record.started_at) });
-  show(view,
+  paint(
     h("p", {}, h("a", { href: "#/history" }, t("history.all"))), h("h1", {}, t("compare.title")),
     h("div", { class: "cols" },
       h("div", {}, chart([{ cls: "water", points: shifted(a, "water") }, { cls: "coffee", points: shifted(a, "weight") },
@@ -708,11 +754,12 @@ function render() {
     last = key;
     const done = r.name === "recipes" ? viewRecipes(view, r.id && decodeURIComponent(r.id))
       : r.name === "history" ? viewHistory(view, r.id) : viewCompare(view, r.ids);
-    done.catch((error) => show(view, h("p", { class: "notice bad" }, error.message)));
+    const paint = painter(view);
+    done.catch((error) => paint(h("p", { class: "notice bad" }, error.message)));
   }
 }
 
-window.addEventListener("hashchange", () => { flash = null; last = ""; if (route().name === "console") refreshGate(); render(); document.getElementById("view").focus(); });
+window.addEventListener("hashchange", () => { flash = null; last = ""; library = null; if (route().name === "console") refreshGate(); render(); document.getElementById("view").focus(); });
 setInterval(() => { if (route().name === "console") refreshGate(); }, 3000);
 for (const node of document.querySelectorAll("[data-icon]")) node.append(iconSvg(node.dataset.icon));
 applyLanguage();

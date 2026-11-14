@@ -487,3 +487,154 @@ def test_library_lists_what_a_card_shows_and_survives_a_bad_file(client, tmp_pat
     assert [p["volume_ml"] for p in library["test"]["pours"]] == [60, 40]
     assert library["test"]["ratio"] == "1:20" and library["test"]["pour_end_s"] > 0
     assert library["broken"] == {"slug": "broken", "name": "Broken", "valid": False}
+
+
+# ---- from the S3 pre-push review and verification -------------------------------
+def test_a_task_created_inside_the_permit_cannot_start_later():
+    client = gate.make_gated(_SimClient)()
+
+    async def run():
+        async def later():
+            await asyncio.sleep(0.05)                        # after the block has ended
+            await client.write_gatt_char(FFE1_UUID, frame(8002))
+
+        with gate.start_permit():
+            inherited = asyncio.create_task(later())         # copies the context, permit and all
+            await client.write_gatt_char(FFE1_UUID, frame(8002))
+            with pytest.raises(gate.GateRefused):            # one write, not two
+                await client.write_gatt_char(FFE1_UUID, frame(8002))
+        with pytest.raises(gate.GateRefused):
+            await inherited
+
+        with gate.start_permit():
+            unused = asyncio.create_task(later())            # the permit is never used here
+        with pytest.raises(gate.GateRefused):                # ... and ends with the block anyway
+            await unused
+
+    asyncio.run(run())
+    assert client.sent == [8002]
+
+
+def test_a_brew_that_opens_while_still_at_31_voids_the_ticket(tmp_path):
+    async def run():
+        machine, _, task = await ready(tmp_path)
+        ticket = await armed(machine)
+        raw = machine._listener._on_raw
+        raw({"cmd": 40510, "pour_index": 0})                 # pour reported, activity still 31
+        assert machine.state == "brewing" and machine._ticket is None
+        assert machine.snapshot()["recipe"] is None
+        raw({"cmd": 8023, "activity": 1})
+        assert machine.state == "idle"
+        raw({"cmd": 8023, "activity": 31})                   # the machine shows 31 again
+        assert machine.state == "busy"                       # not armed: nothing is loaded
+        with pytest.raises(NotReady):
+            await machine.start(ticket)
+        assert 8002 not in gate_log(machine)
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_an_unknown_activity_after_a_short_brew_opens_nothing(tmp_path):
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))            # the 30 s window is running
+        raw = machine._listener._on_raw
+        machine._listener._brewing.cancel()                  # drive the rest by hand
+        raw({"cmd": 40512})
+        assert machine._brew is None
+        raw({"cmd": 8023, "activity": 37})                   # unknown, seconds after the start
+        assert machine._brew is None and machine.state == "busy"
+        assert len(brews.list()) == 1 and brews.list()[0]["reason"] == "finished"
+        raw({"cmd": 8023, "activity": 1})
+        await armed(machine)                                 # and a load works again
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_stop_during_teardown_and_a_stop_the_machine_did_not_take(tmp_path):
+    class Deaf(SimListener):
+        brew_seconds = 5
+
+        async def send_confirmed(self, name, frame):
+            from xbloom.ble import frame_command_code
+            if frame_command_code(frame) == 40519:
+                await self._client.write_gatt_char(FFE1_UUID, frame)
+                return False                                 # written, never answered
+            return await super().send_confirmed(name, frame)
+
+    async def run():
+        machine, brews, task = await ready(tmp_path, Deaf)
+        await machine.start(await armed(machine))
+        with pytest.raises(CommandUnanswered):
+            await machine.stop()
+        assert machine.state == "brewing"
+        machine._listener._on_raw({"cmd": 8023, "activity": 1})      # ends by itself later
+        assert brews.get(brews.list()[0]["id"])["reason"] == "home"  # not "stopped"
+
+        machine._listener._on_raw({"cmd": 40510, "pour_index": 0})
+        listener, machine._listener = machine._listener, None        # the link is going down
+        with pytest.raises(NotReady):
+            await machine.stop()
+        machine._listener = listener
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_refused_start_gets_no_credit_for_a_later_knob_start(tmp_path):
+    class Refusing(Fast):
+        start_answer = "refuse"
+
+    async def run():
+        machine, brews, task = await ready(tmp_path, Refusing)
+        with pytest.raises(CommandRefused):
+            await machine.start(await armed(machine))
+        machine._listener._on_raw({"cmd": 8023, "activity": 77})     # unknown value: no window now
+        assert machine._brew is None
+        machine._listener._on_raw({"cmd": 8023, "activity": 31})
+        machine._listener.knob_start()
+        assert await machine._wait_for(lambda: machine.state == "brewing", 1)
+        assert await machine._wait_for(lambda: machine.state == "idle", 3)
+        assert brews.get(brews.list()[0]["id"])["hub_started"] is False
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_record_times_are_iso_8601_with_a_colon_in_the_offset(tmp_path):
+    import datetime
+    import re
+
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        await machine.start(await armed(machine))
+        assert await machine._wait_for(lambda: machine.state == "idle", 3)
+        record = brews.get(brews.list()[0]["id"])
+        for key in ("started_at", "ended_at"):
+            assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d", record[key]), record[key]
+            datetime.datetime.fromisoformat(record[key])
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_a_brew_file_that_is_not_a_record_does_not_break_the_list(tmp_path):
+    store = BrewStore(tmp_path)
+    (tmp_path / "20260101-000000-000a.json").write_text("[1, 2]")
+    (tmp_path / "20260101-000000-001a.json").write_text("not json")
+    assert store.list() == []
+
+
+def test_views_that_fetch_never_paint_directly():
+    """A view that awaits can finish after the address has moved on. It paints
+    through painter(), which checks; a bare show() there once drew a recipe
+    page over the loaded screen."""
+    import re
+
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    views = re.findall(r"async function (view\w+)\(view, \w+\) \{\n(.*?)\n\}\n", script, flags=re.S)
+    assert {name for name, _ in views} == {"viewRecipes", "viewRecipe", "viewHistory", "viewBrew", "viewCompare"}
+    for name, body in views:
+        assert "painter(view)" in body and "show(view" not in body, name

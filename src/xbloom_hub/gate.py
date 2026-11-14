@@ -30,21 +30,27 @@ ALLOWED = LOAD | CANCEL | STOP
 # deliberately in no list.
 START = frozenset({8002})
 
-_start_permit: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "xbloom_start_permit", default=False)
+# The permit is a one-element list holding how many 8002 writes are left.
+_start_permit: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
+    "xbloom_start_permit", default=None)
 
 
 @contextlib.contextmanager
 def start_permit():
-    """Let 8002 through for the writes made inside this block, in this task.
+    """Let exactly one 8002 through, from inside this block.
 
-    A context variable, so the permit belongs to the task that holds it: a
-    write of 8002 from any other task, at any time, is still refused.
+    A context variable keeps the permit out of tasks that already exist. A
+    task created inside the block does inherit the variable, and keeps it
+    after the block ends, so the permit is also a counter that the first 8002
+    uses up and that the end of the block zeroes: an inherited copy points at
+    the same spent counter.
     """
-    token = _start_permit.set(True)
+    permit = [1]
+    token = _start_permit.set(permit)
     try:
         yield
     finally:
+        permit[0] = 0
         _start_permit.reset(token)
 
 _FFE1 = FFE1_UUID.lower()
@@ -64,9 +70,12 @@ def check(char_specifier: object, data: object) -> int:
         code = frame_command_code(bytes(data))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         code = None
-    allowed = code in ALLOWED or (code in START and _start_permit.get())
-    if uuid != _FFE1 or not allowed:
+    permit = _start_permit.get()
+    starting = code in START and permit is not None and permit[0] > 0
+    if uuid != _FFE1 or not (code in ALLOWED or starting):
         raise GateRefused(f"write refused: characteristic={uuid} code={code}")
+    if starting:
+        permit[0] -= 1
     return code
 
 
