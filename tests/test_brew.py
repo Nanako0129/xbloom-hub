@@ -744,3 +744,26 @@ def test_a_running_brew_is_served_as_it_is_now(tmp_path):
         task.cancel()
 
     asyncio.run(run())
+
+
+def test_leaving_the_screen_after_the_last_pour_is_a_finished_brew(tmp_path):
+    # As measured 2026-11-14: 40511, then 40513 two seconds later, no 40512.
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        for pour_ended, reason in ((True, "finished"), (False, "abandoned")):
+            await machine.start(await armed(machine))
+            machine._listener._brewing.cancel()
+            raw = machine._listener._on_raw
+            raw({"cmd": 8023, "activity": 35})
+            pours = len(ITEM["recipe"]["pours"])
+            for index in range(pours):
+                raw({"cmd": 40510, "pour_index": index})
+                if pour_ended or index < pours - 1:        # unfinished: the last pour never ends
+                    raw({"cmd": 40511})
+            raw({"cmd": 40513})
+            raw({"cmd": 8023, "activity": 1})
+            newest = brews.get(brews.list()[0]["id"])
+            assert newest["reason"] == reason, (pour_ended, newest["reason"])
+        task.cancel()
+
+    asyncio.run(run())

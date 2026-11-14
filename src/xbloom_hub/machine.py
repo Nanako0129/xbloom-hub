@@ -51,6 +51,7 @@ START_WINDOW_S = 30.0
 CHECKPOINT_S = 10.0
 
 CMD_POUR_START, CMD_FINISHED, CMD_ABANDONED = 40510, 40512, 40513
+CMD_POUR_END = 40511
 CMD_CUP_ON, CMD_CUP_OFF = 9002, 9008
 CMD_WEIGHT, CMD_WATER, CMD_STATUS = 20501, 40523, 40521
 
@@ -224,7 +225,10 @@ class Machine:
             if cmd == CMD_FINISHED:
                 self._close_brew("finished")
             elif cmd == CMD_ABANDONED:
-                self._close_brew("abandoned")
+                # 40513 also comes when the screen is left right after the
+                # last pour, before any 40512 (2026-11-14: 2 s after the
+                # 40511 of a one-pour recipe). Every pour ended is a brew done.
+                self._close_brew("finished" if self._all_poured() else "abandoned")
             elif "activity" in decoded and activity == _FINISHED:
                 # The 40512 was missed, or the hub joined just after a brew.
                 self._close_brew("stopped" if self._brew["stop_sent"] else "finished")
@@ -237,6 +241,12 @@ class Machine:
             self._held = None               # home again: nothing left to attach
             self._started_at = None
         self._publish()
+
+    def _all_poured(self) -> bool:
+        brew = self._brew
+        pours = len(((brew.get("recipe") or {}).get("pours")) or [])
+        ended = sum(1 for _, event in brew["events"] if event.get("cmd") == CMD_POUR_END)
+        return pours > 0 and ended >= pours
 
     def _clear_load(self) -> None:
         self._recipe = None
