@@ -25,8 +25,11 @@ class BrewStore:
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def new_id(self) -> str:
-        tail = "".join(secrets.choice(_ALPHABET) for _ in range(4))
-        return time.strftime("%Y%m%d-%H%M%S") + "-" + tail
+        # Milliseconds, then one random character: ids sort in the order the
+        # brews happened even within one second.
+        now = time.time()
+        tail = f"{int(now * 1000) % 1000:03d}" + secrets.choice(_ALPHABET)
+        return time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + "-" + tail
 
     def _path(self, brew_id: str) -> Path:
         # The id is the file name; only the hub's own pattern is accepted.

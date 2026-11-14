@@ -298,8 +298,7 @@ def test_asleep_and_link_loss_close_a_record(tmp_path):
         assert machine.state == "brewing"
         await machine.release()
         assert machine.state == "released"
-        # Two records in the same second sort by their random tail, so compare as a set.
-        assert {b["reason"] for b in brews.list()} == {"asleep", "link_lost"}
+        assert [b["reason"] for b in brews.list()] == ["link_lost", "asleep"]   # newest first
         task.cancel()
 
     asyncio.run(run())
