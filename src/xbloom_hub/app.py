@@ -350,7 +350,8 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         query = request.query_params
         page = query.get("page", "1")
         return JSONResponse(await community.search(
-            keyword=query.get("keyword"), page=int(page) if page.isdigit() and len(page) <= 3 else 0,
+            # isdecimal and isascii: "²" is a digit to isdigit() and not to int().
+            keyword=query.get("keyword"), page=int(page) if page.isascii() and page.isdecimal() and len(page) <= 3 else 0,
             sort=query.get("sort", "date"), kind=query.get("kind") or None,
             source=query.get("source") or None, machine=query.get("machine") or None,
             filters={key: query.getlist(key) for key in LIST_FILTERS if query.getlist(key)}))
@@ -395,9 +396,11 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            if radio is not None:
-                await radio.stop()
-            await community.aclose()
+            try:
+                if radio is not None:
+                    await radio.stop()
+            finally:
+                await community.aclose()
 
     return Starlette(
         routes=[

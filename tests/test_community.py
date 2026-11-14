@@ -496,3 +496,51 @@ def test_mcp_tools_label_what_xbloom_users_wrote(hub):
     bad = call(hub, "import_community_recipe", slug="s", share_url="https://evil.example/?id=a")
     assert bad["error"] == "bad_share_link"
     assert hub.machine.snapshot()["recipe"] is None
+
+
+# ---- review of 527a02f -------------------------------------------------- #
+def test_a_page_written_in_other_digits_is_a_bad_query_not_a_crash(hub):
+    for page in ("²", "١", "٣"):
+        reply = hub.get(f"/api/community/search?page={page}", headers=AUTH)
+        assert reply.status_code == 400 and reply.json()["error"] == "bad_query", page
+
+
+def test_a_blank_filter_name_is_no_filter(hub):
+    reply = hub.get("/api/community/search?keyword=kenya&origins=&origins=%20", headers=AUTH)
+    assert reply.status_code == 200, reply.text
+    body, = hub.fake.bodies(cm.SEARCH_URL)
+    assert not body.get("originIds")
+
+
+def test_an_empty_criteria_answer_is_not_kept(tmp_path, monkeypatch):
+    fake = Fake()
+    fake.answers[cm.CRITERIA_URL] = lambda: httpx.Response(200, json={"code": 200, "data": {}})
+    with make_client(tmp_path, fake) as hub:
+        reply = hub.get("/api/community/criteria", headers=AUTH)
+        assert reply.status_code == 502 and reply.json()["detail"] == "malformed_response"
+        fake.answers[cm.CRITERIA_URL] = lambda: httpx.Response(200, json=CRITERIA)
+        reply = hub.get("/api/community/criteria", headers=AUTH)
+        assert reply.json()["from_xbloom_users"]["origins"] == ["Kenya", "Ethiopia"]
+        # A good answer is kept for a day, then asked for again.
+        hub.get("/api/community/criteria", headers=AUTH)
+        assert len(fake.bodies(cm.CRITERIA_URL)) == 2
+        monkeypatch.setattr(cm, "CRITERIA_TTL_S", -1)
+        hub.get("/api/community/criteria", headers=AUTH)
+        assert len(fake.bodies(cm.CRITERIA_URL)) == 3
+
+
+def test_long_joined_metadata_is_cut_not_a_reason_to_refuse(tmp_path):
+    detail = {**DETAIL, "origin": ["Origin " + str(i) * 40 for i in range(30)]}
+    with make_client(tmp_path, Fake(detail=detail)) as hub:
+        shown = hub.get("/api/community/4242", headers=AUTH).json()
+        assert shown["importable"] is True, shown["reasons"]
+        assert len(shown["from_xbloom_users"]["recipe"]["meta"]["bean"]) <= 500
+
+
+def test_a_shaping_failure_is_a_502(tmp_path, monkeypatch):
+    with make_client(tmp_path, Fake()) as hub:
+        def broken(_):
+            raise KeyError("name")
+        monkeypatch.setattr(cm, "_card", broken)
+        reply = hub.get("/api/community/search?keyword=kenya", headers=AUTH)
+        assert reply.status_code == 502 and reply.json()["detail"] == "malformed_response"

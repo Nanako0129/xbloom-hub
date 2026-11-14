@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import re
+import time
 from urllib.parse import quote, unquote, urlsplit
 
 import httpx2 as httpx   # the mcp SDK's own HTTP client: no package added
@@ -49,6 +50,7 @@ _SHARE_ID = re.compile(r"[A-Za-z0-9+/=]{1,64}")
 BODY_CAP = 1 << 20          # bytes, counted after decompression
 REQUEST_S = 10              # each request
 DEADLINE_S = 15             # each hub operation, over all its requests
+CRITERIA_TTL_S = 24 * 3600  # xBloom's filter vocabulary is asked for again after a day
 MAX_AT_ONCE = 2             # a third operation is refused, not queued
 PAGE_SIZE = 20
 MAX_PAGE = 50
@@ -218,10 +220,11 @@ def to_hub(vo: object, sid: str, found: dict | None = None) -> tuple[dict | None
     if found is not None:
         for key, value in (
             ("notes", clean_text(found.get("description") or "")[:META_MAX].strip()),
-            ("roast", clean_text(found.get("roast") or "")),
-            ("process", clean_text(", ".join(found.get("process") or []))),
+            # Cut like notes: metadata the hub joins must not make a recipe unimportable.
+            ("roast", clean_text(found.get("roast") or "")[:META_MAX].strip()),
+            ("process", clean_text(", ".join(found.get("process") or []))[:META_MAX].strip()),
             ("bean", clean_text(", ".join([*(found.get("origin") or []),
-                                           *(found.get("varietal") or [])]))),
+                                           *(found.get("varietal") or [])]))[:META_MAX].strip()),
         ):
             if value:
                 meta[key] = value
@@ -279,7 +282,22 @@ class Community:
             cookies=http.cookiejar.CookieJar(http.cookiejar.DefaultCookiePolicy(allowed_domains=[])),
         )
         self._client = XBloomCommunityClient(_Session(self._post))
+        self._criteria_at: float | None = None
         self._running = 0
+
+    async def _criteria(self) -> dict:
+        """xBloom's filter vocabulary. The library keeps the first answer for
+        the life of its client; a new client is made after a day, and an
+        answer with no list in it is not kept at all."""
+        if self._criteria_at is None or time.monotonic() - self._criteria_at > CRITERIA_TTL_S:
+            self._client = XBloomCommunityClient(_Session(self._post))
+            self._criteria_at = None
+        found = await self._client.criteria()
+        if not isinstance(found, dict) or not any(found.get(name) for name in CRITERIA_LISTS.values()):
+            raise _failed("malformed_response")   # not kept: _criteria_at stays None, so the next call asks anew
+        if self._criteria_at is None:
+            self._criteria_at = time.monotonic()
+        return found
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -310,8 +328,10 @@ class Community:
         try:
             async with asyncio.timeout(DEADLINE_S):
                 yield
-        except (CommunityFailed, BadQuery):
+        except BadQuery:
             raise
+        except OutboundRefused as err:      # a URL outside the four: a bug, still a 502
+            raise _failed("upstream_refused", err) from None
         except (TimeoutError, httpx.TimeoutException) as err:
             raise _failed("timeout", err) from None
         except httpx.DecodingError as err:
@@ -345,11 +365,11 @@ class Community:
 
     # ---- what the routes and tools call --------------------------------- #
     async def criteria(self) -> dict:
-        async with self._operation():
-            found = await self._client.criteria()
-        return {"from_xbloom_users": {
-            key: [_text(o.get("name"), 80) for o in found.get(name, [])[:200]]
-            for key, name in CRITERIA_LISTS.items()}}
+        async with self._operation():         # shaping inside it too: a failure is a 502
+            found = await self._criteria()
+            return {"from_xbloom_users": {
+                key: [_text(o.get("name"), 80) for o in found.get(name, [])[:200]]
+                for key, name in CRITERIA_LISTS.items()}}
 
     async def search(self, keyword: object = None, page: object = 1, sort: object = "date",
                      kind: object = None, source: object = None, machine: object = None,
@@ -368,6 +388,9 @@ class Community:
         filters = filters or {}
         if not isinstance(filters, dict) or set(filters) - set(LIST_FILTERS):
             raise BadQuery(f"filters: only {', '.join(LIST_FILTERS)}")
+        # A blank name is no filter, as xbloom-py treats it.
+        filters = {key: [n for n in value if not (isinstance(n, str) and not n.strip())]
+                   if isinstance(value, list) else value for key, value in filters.items()}
         names = {key: value for key, value in filters.items() if value}
         if machine:
             names["machine"] = [machine]
@@ -378,7 +401,7 @@ class Community:
                 raise BadQuery(f"{key}: a list of at most {FILTER_NAMES_MAX} names")
         async with self._operation():
             if names:
-                criteria = await self._client.criteria()
+                criteria = await self._criteria()
                 for key, value in names.items():
                     # Compared as xbloom-py compares them, so its own lookup cannot fail.
                     known = {o["name"].casefold() for o in criteria.get(CRITERIA_LISTS[key], [])}
@@ -387,24 +410,24 @@ class Community:
             found = await self._client.search(
                 keyword or None, machine=machine or None, kind=kind, source=source, sort=sort,
                 page=page, page_size=PAGE_SIZE, **lists)
-        return {"page": _num(found["page"]), "total_pages": _num(found["total_pages"]),
-                "total": _num(found["total"]),
-                "from_xbloom_users": {"recipes": [_card(r) for r in found["recipes"][:PAGE_SIZE]]}}
+            return {"page": _num(found["page"]), "total_pages": _num(found["total_pages"]),
+                    "total": _num(found["total"]),
+                    "from_xbloom_users": {"recipes": [_card(r) for r in found["recipes"][:PAGE_SIZE]]}}
 
     async def detail(self, recipe_id: object) -> dict:
         """One hub recipe: its card and description, the recipe as it would be
         saved, and whether it can be, with the reasons when it cannot."""
         recipe_id = _recipe_id(recipe_id)
-        async with self._operation():
+        async with self._operation():         # shaping inside it too: a failure is a 502
             found, sid, vo = await self._detail_and_share(recipe_id)
-        recipe, reasons = to_hub(vo, sid, found) if sid else (None, {"share_url": "missing_or_invalid"})
-        community = {
-            **_card(found), "description": _text(found.get("description"), META_MAX),
-            "uploaded_on": _text(found.get("uploaded_on"), 20),
-            "pours": [{key: _num(p.get(key)) for key in
-                       ("volume_ml", "temperature_c", "pattern", "pause_s")}
-                      for p in (found.get("pours") or [])[:20] if isinstance(p, dict)],
-        }
+            recipe, reasons = to_hub(vo, sid, found) if sid else (None, {"share_url": "missing_or_invalid"})
+            community = {
+                **_card(found), "description": _text(found.get("description"), META_MAX),
+                "uploaded_on": _text(found.get("uploaded_on"), 20),
+                "pours": [{key: _num(p.get(key)) for key in
+                           ("volume_ml", "temperature_c", "pattern", "pause_s")}
+                          for p in (found.get("pours") or [])[:20] if isinstance(p, dict)],
+            }
         return {"id": recipe_id, "importable": recipe is not None, "reasons": reasons,
                 "as_sent": as_sent(recipe) if recipe else None,
                 "plan": plan(recipe) if recipe else None,
