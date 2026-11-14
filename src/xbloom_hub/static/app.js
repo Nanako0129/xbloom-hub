@@ -20,7 +20,7 @@ function h(tag, attrs, ...children) {
     else if (key === "disabled" || key === "checked" || key === "selected") node[key] = Boolean(value);
     else node.setAttribute(key, String(value));
   }
-  for (const child of children.flat()) {
+  for (const child of children.flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
@@ -30,7 +30,7 @@ function h(tag, attrs, ...children) {
 function svg(tag, attrs, ...children) {
   const node = document.createElementNS(SVG, tag);
   for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, String(value));
-  for (const child of children.flat()) if (child) node.append(child);
+  for (const child of children.flat(Infinity)) if (child) node.append(child);
   return node;
 }
 
