@@ -53,7 +53,9 @@
     api<RecipeInfo>("GET", `/api/recipes/${encodeURIComponent(want)}/plan`)
       .then((answer) => { if (loadKey === key) plan = { key, info: answer }; }).catch(() => {});
   });
-  const info = $derived(plan && slug && plan.key.startsWith(`${slug}|`) ? plan.info : null);
+  // Only the plan fetched for this very load: right after a load again of the
+  // same recipe, the previous load's plan is not shown in the confirmation.
+  const info = $derived(plan && plan.key === loadKey ? plan.info : null);
 
   // ---- the brew that is running ---------------------------------------------
   const pourText = $derived.by(() => {
@@ -144,7 +146,8 @@
             onclick={async () => { if (info && await ask({ title: t("start.title", { name: info.recipe.name }), body: t("start.body"), yes: t("action.start"), info })) act(start, t("working.start")); }}>
             {t("action.start")}</button>
         {:else}
-          <button disabled={work.busy} onclick={() => act(async () => { await cancel(); await load(s.recipe!.slug); }, t("working.load"))}>{t("action.reload")}</button>
+          <!-- The slug is read before the cancel: once it is answered the machine is at rest and the state has no recipe. -->
+          <button disabled={work.busy} onclick={() => { const again = s.recipe!.slug; act(async () => { await cancel(); await load(again); }, t("working.load")); }}>{t("action.reload")}</button>
         {/if}
         <button class="quiet" disabled={work.busy} onclick={() => act(cancel, t("working.cancel"))}>{t("action.cancel_load")}</button>
       </div>

@@ -101,11 +101,12 @@ def run(test: str, static: Path | None, browser: str, page: str = "current", web
         env["XBLOOM_TEST_WEB_DIR"] = str(web)
     done = subprocess.run(
         [sys.executable, "-m", "pytest", f"{TESTS}::{test}", "-m", "browser", "--browser", browser,
-         "-k", page, "-q", "-p", "no:cacheprovider"], cwd=ROOT, env=env, capture_output=True, text=True)
-    return done.returncode == 0
+         "-k", page, "-q", "-p", "no:cacheprovider", "-rs"], cwd=ROOT, env=env, capture_output=True, text=True)
+    # A skipped test proved nothing: count it as not passing.
+    return done.returncode == 0 and " skipped" not in done.stdout
 
 
-def build_next_mutant(edits) -> Path | None:
+def build_next_mutant(edits, install: bool = False) -> Path | None:
     """Copy frontend/ (without node_modules), apply the edits, build. Returns the
     build directory, or None if an edit does not apply or the build fails."""
     front = MUTANT_ROOT / "frontend"
@@ -119,17 +120,31 @@ def build_next_mutant(edits) -> Path | None:
         path = front / "src" / file
         text = path.read_text(encoding="utf-8")
         if text.count(old) != 1:
+            print(f"    not found in {file}: {old[:60]!r}")
             return None
         path.write_text(text.replace(old, new), encoding="utf-8")
-    for step in (["ci"], ["run", "build"]):
-        if subprocess.run([str(front / "npm.sh"), *step], capture_output=True, text=True).returncode != 0:
+    if install:
+        done = subprocess.run([str(front / "npm.sh"), "ci"], capture_output=True, text=True)
+        if done.returncode != 0:
+            print(f"    npm ci failed: {(done.stdout + done.stderr).strip()[-400:]}")
             return None
+    done = subprocess.run([str(front / "npm.sh"), "run", "build"], capture_output=True, text=True)
+    if done.returncode != 0:
+        print(f"    build failed: {(done.stdout + done.stderr).strip()[-400:]}")
+        return None
     return web
 
 
 def main_next(browser: str) -> bool:
     held = True
-    baseline = {test: run(test, None, browser, "next") for test, _ in NEXT_GUARDS.values()}
+    # The baseline is built here from the sources as they are, the same way
+    # as the mutants, and installed once: not a build left in web/ that may
+    # be stale or missing (a missing build would skip, and a skip passes).
+    clean = build_next_mutant([], install=True)
+    if clean is None:
+        print("BROKEN    next: the sources as they are did not build")
+        return False
+    baseline = {test: run(test, None, browser, "next", clean) for test, _ in NEXT_GUARDS.values()}
     for test, passed in baseline.items():
         if not passed:
             print(f"BROKEN    next: {test} fails on the page as it is")

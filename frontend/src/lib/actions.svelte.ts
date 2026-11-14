@@ -20,7 +20,7 @@ export const work = $state({
 });
 
 // Not reactive state: nothing renders it, so it cannot leak into the page.
-let ticket: { slug: string; value: string; loadId: string } | null = null;
+let ticket: { slug: string; value: string } | null = null;
 // Reactive mirror of "this page holds a ticket for load X", for ownLoad().
 const held = $state({ loadId: null as string | null });
 
@@ -38,7 +38,7 @@ export async function act(fn: () => Promise<unknown>, what?: string): Promise<vo
 
 export async function load(slug: string): Promise<void> {
   const loaded = await api<{ ticket: string; load_id: string }>("POST", "/api/machine/load", { slug });
-  ticket = { slug, value: loaded.ticket, loadId: loaded.load_id };
+  ticket = { slug, value: loaded.ticket };
   held.loadId = loaded.load_id;
   location.hash = "#/";
 }

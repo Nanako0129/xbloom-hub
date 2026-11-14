@@ -39,6 +39,8 @@
     const timer = setTimeout(() => { delete view.dataset.enter; }, ENTER_MS);
     return () => clearTimeout(timer);
   });
+  // A message belongs to the page it was shown on.
+  $effect(() => { route.hash; work.flash = null; });
   // While a request is on its way the pill shows; the stylesheet keys on body[data-busy].
   $effect(() => {
     if (work.busy || work.stopping) document.body.dataset.busy = ""; else delete document.body.dataset.busy;
