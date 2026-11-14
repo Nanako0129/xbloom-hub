@@ -65,6 +65,17 @@ class SecurityHeaders:
         return await self._app(scope, receive, send_with_headers)
 
 
+def network_hosts(hosts: list[str]) -> list[str]:
+    """The allowed host names a phone could reach: not this host's loopback.
+    A page opened at 127.0.0.1 puts one of these in the pairing QR code."""
+    def loopback(host: str) -> bool:
+        try:
+            return ipaddress.ip_address(host.strip("[]")).is_loopback
+        except ValueError:
+            return host == "localhost"
+    return [h for h in hosts if not loopback(h)]
+
+
 def check_allowed_hosts(hosts: list[str]) -> list[str]:
     """Refuse a list that would switch the Host check off (P1-3)."""
     if not hosts or any(not h or "*" in h for h in hosts):
@@ -273,7 +284,8 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         return JSONResponse(machine.snapshot())
 
     async def pair_start(request):
-        return JSONResponse({"code": pairing.start(), "expires_in_s": LIFETIME_S})
+        return JSONResponse({"code": pairing.start(), "expires_in_s": LIFETIME_S,
+                             "hosts": network_hosts(allowed_hosts)})
 
     async def pair_cancel(request):
         pairing.cancel()

@@ -1009,6 +1009,13 @@ and where to pair it, instead of a bare "unauthorized".
   still draws the QR code (another browser on the same computer can use
   it) and says above it that a phone cannot open this address and that
   the page should be opened at the hub's network address first.
+  *Changed after the owner's first try (2026-11-14):* a browser keeps the
+  token per address, so the owner's Mac held it only at `127.0.0.1` and
+  the console at the network address had no panel to press. Start now
+  also answers `hosts`, the allowed host names that are not loopback; a
+  page at a loopback address puts the first of them in the QR code and
+  names it, and warns only when there is none. A device without the
+  token sees the panel with why it cannot add one.
 - The page reads `#p=` like `#t=`, at module load and synchronously: only
   the exact form `^#p=([A-Za-z0-9_-]{22})$` counts, the address is cleared
   with `history.replaceState` before anything else runs, then it claims.

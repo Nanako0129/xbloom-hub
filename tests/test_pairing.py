@@ -61,7 +61,7 @@ def test_a_code_claims_once_and_gives_the_token(client):
 def test_the_token_is_not_in_the_start_answer(client):
     answer = client.post("/api/pair/start", headers=AUTH)
     assert TOKEN not in answer.text
-    assert set(answer.json()) == {"code", "expires_in_s"}
+    assert set(answer.json()) == {"code", "expires_in_s", "hosts"}
 
 
 def test_every_bad_code_gets_the_same_answer(client, monkeypatch):
@@ -169,3 +169,9 @@ def test_the_code_is_not_kept_in_clear_and_expires():
     assert p.status() == "none"
     with pytest.raises(BadPairingCode):
         p.claim(code)
+
+
+def test_the_hosts_a_phone_can_reach_leave_out_loopback():
+    from xbloom_hub.app import network_hosts
+    assert network_hosts(["localhost", "127.0.0.1", "127.0.0.2", "[::1]", "192.168.1.20", "hub.lan"]) \
+        == ["192.168.1.20", "hub.lan"]

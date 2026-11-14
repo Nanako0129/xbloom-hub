@@ -60,7 +60,7 @@
           {/if}
         </div>
       </section>
-      {#if hasToken()}<PairPanel />{/if}
+      <PairPanel />
     </div>
     <div>
       <section class="card"><h2>{t("console.changes")}</h2><pre class="log">{changes || t("console.no_changes")}</pre></section>

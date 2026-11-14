@@ -78,3 +78,22 @@ def test_leaving_the_console_voids_the_code_shown(ui, hub):
     go(ui, hub, "#/recipes")
     ui.wait_for_timeout(500)
     assert status() == "none"
+
+
+def test_at_loopback_the_code_names_the_hubs_network_address(ui, hub):
+    # As the owner's hub answers: an allowed host a phone can reach.
+    def with_host(route):
+        answer = route.fetch()
+        route.fulfill(response=answer, json={**answer.json(), "hosts": ["192.0.2.10"]})
+
+    ui.route("**/api/pair/start", with_host)
+    show_code(ui, hub)
+    expect(ui.locator("svg.qr")).to_be_visible()
+    expect(ui.locator("#pair-host")).to_have_text("The phone will open 192.0.2.10.")
+    expect(ui.locator("#pair-loopback")).to_have_count(0)
+
+
+def test_an_unpaired_device_sees_why_it_cannot_add_one(hub, phone):
+    phone.goto(f"{hub.base}/#/console")
+    expect(phone.locator("#pair")).to_contain_text("This device is not paired, so it cannot add others.")
+    expect(phone.locator("#pair-start")).to_have_count(0)
