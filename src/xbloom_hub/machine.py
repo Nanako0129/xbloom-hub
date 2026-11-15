@@ -40,6 +40,7 @@ _NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
 # the machine's own tare key on any screen, so they never join _HOME: as home
 # they would close a running brew's record and take its Stop away.
 SCALE_PAGE = frozenset({1, 65, 4, 5})
+TARE_SETTLE = frozenset({4, 5})   # reported after a zero, on any screen (ble.py:735)
 # The machine sets its scale back to zero about 5 s into a brew, with water
 # already in the cup (docs/S3-RESULTS.md: 5.6 g, 4.95 g and 5.7 g were lost
 # that way). A reading that falls by more than REZERO_DROP_G to within
@@ -148,6 +149,11 @@ class Machine:
         if self._on_scale and self._activity in SCALE_PAGE:
             return "scale"
         if self._activity in _HOME:
+            return "idle"
+        # The settle after a zero (4, then 5) off the scale page, with no load
+        # held: still idle to the page. Only here, never in _HOME, which would
+        # let a tare key close a brew's record.
+        if self._activity in TARE_SETTLE and self._held is None and self._started_at is None:
             return "idle"
         if self._activity == _ASLEEP:
             return "asleep"
@@ -797,6 +803,7 @@ class Machine:
         async with self._lock:
             if self.state != "idle":
                 raise NotReady(f"cannot go to the scale while {self.state}")
+            self._scale_free("go to the scale")
             listener = self._listener
             await self._scale_send("scale_enter", packet_scale_enter())
             if self._listener is not listener:

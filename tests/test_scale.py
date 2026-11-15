@@ -329,3 +329,28 @@ def test_machine_state_names_the_scale_state(client):
     described = {t["name"]: t["description"] for t in tools["result"]["tools"]}
     assert "scale (" in described["machine_state"]
     assert not {"scale_enter", "tare", "scale_quit"} & set(described)
+
+
+def test_a_zero_at_home_reads_idle_through_its_settle(tmp_path):
+    # Review of 55e765a: 8500 from idle makes the machine report 4, then 5.
+    async def run():
+        machine, task = await ready(tmp_path)
+        raw = machine._listener._on_raw
+        raw({"cmd": 8023, "activity": 4})
+        assert machine.state == "idle"
+        raw({"cmd": 8023, "activity": 5})
+        assert machine.state == "idle"
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_going_to_the_scale_refuses_with_a_start_just_sent(tmp_path):
+    async def run():
+        machine, task = await ready(tmp_path)
+        machine._started_at = 1.0                   # as just after a start
+        with pytest.raises(NotReady):
+            await machine.scale_enter()
+        task.cancel()
+
+    asyncio.run(run())
