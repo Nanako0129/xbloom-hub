@@ -38,3 +38,27 @@ def test_a_proxy_that_cannot_be_asked_does_not_stop_the_hub():
         return FakeClient(*args, **kwargs, fail=ConnectionError("no proxy"))
     assert asyncio.run(drop_stale_links("proxy", "key", failing)) == 0
     assert FakeClient.instances[-1].closed
+
+
+def test_every_search_first_drops_what_the_proxy_still_holds(monkeypatch):
+    import xbloom_hub.radio as radio_module
+    from xbloom_hub.radio import ProxyRadio
+
+    calls = []
+
+    async def fake_drop(host, key, client_class=None):
+        calls.append(host)
+        return 1
+
+    monkeypatch.setattr(radio_module, "drop_stale_links", fake_drop)
+
+    class NoScanners:
+        def async_current_scanners(self):
+            return []
+
+    import habluetooth
+    monkeypatch.setattr(habluetooth, "get_manager", lambda: NoScanners())
+    radio = ProxyRadio("proxy", "key")
+    for _ in range(2):
+        assert asyncio.run(radio.find_device(timeout=0)) is None
+    assert calls == ["proxy", "proxy"]                  # before each search, not once at start
