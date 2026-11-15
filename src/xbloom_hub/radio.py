@@ -75,7 +75,6 @@ class ProxyRadio:
 
         await habluetooth.BluetoothManager().async_setup()
         gate.install()
-        await drop_stale_links(self._config["address"], self._config["noise_psk"])
         # Reconnects to the proxy by itself and re-registers its scanner.
         self._conn = APIConnectionManager(self._config)
         await self._conn.start()
@@ -85,6 +84,12 @@ class ProxyRadio:
             await self._conn.stop()
 
     async def find_device(self, timeout: float = 30.0):
+        # The hub searches only when it holds no link, so any link the proxy
+        # holds now is left over: from a hub that stopped, or from a drop the
+        # proxy did not close (2026-11-15: the proxy's API reconnected at 05:26,
+        # kept the old link, and the machine was "not found" for 12 hours).
+        # A connected machine does not advertise. Dropped before every search.
+        await drop_stale_links(self._config["address"], self._config["noise_psk"])
         # bleak.BleakScanner hears nothing through the proxy outside Home
         # Assistant (docs/S0-RESULTS.md, item 4); read the scanners' own tables.
         import habluetooth
