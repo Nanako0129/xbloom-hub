@@ -37,7 +37,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "state.offline": "離線", "state.idle": "待機", "state.asleep": "休眠", "state.armed": "已載入",
     "state.brewing": "沖煮中", "state.finished": "完成", "state.busy": "忙碌", "state.released": "已讓出連線",
-    "state.scale": "磅秤畫面",
+    "state.scale": "磅秤畫面", "state.no_water": "缺水",
     "status.connecting": "連線中", "status.no_hub": "連不到 hub",
 
     "reason.radio_starting": "正在連接藍牙橋接", "reason.machine_not_found": "找不到咖啡機",
@@ -53,6 +53,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "error.recipe_is_loaded": "這份配方正載入在機器上，先取消載入。",
     "error.recipe_invalid": "配方內容不符合機器的限制。", "error.recipe_exists": "這個代號已經有配方在用。",
     "error.machine_refused": "機器拒絕了這個指令。",
+    "error.no_water": "水箱的水不夠，機器沒有開始。加水後再按一次開始。",
     "error.machine_unanswered": "機器沒有回應。請看機器螢幕確認狀態。",
     "error.cancel_failed": "機器沒有回應取消。",
     "error.not_found": "找不到。",
@@ -91,6 +92,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "home.finished": "沖好了", "home.scale": "秤 g", "home.recent": "最近的沖煮", "home.all_brews": "全部紀錄",
     "home.count": "沖煮次數", "home.total_water": "總出水",
     "home.busy": "機器正在使用中", "home.busy_hint": "有人在機器上操作，或正在一個 hub 不認得的畫面。",
+    "home.no_water": "水箱要加水", "home.no_water_hint": "機器畫面顯示 + WATER。加滿水箱後，機器回到待機就能再沖。",
     "home.ready": "準備好了", "home.asleep": "機器休眠中",
     "home.pick": "選一份配方", "home.open": "看內容", "home.all_recipes": "全部配方",
     "recipes.empty": "還沒有配方。在 Claude Code 裡請它為你的豆子設計一份，存檔後會出現在這裡。",
@@ -195,7 +197,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "state.offline": "Offline", "state.idle": "Ready", "state.asleep": "Asleep", "state.armed": "Loaded",
     "state.brewing": "Brewing", "state.finished": "Done", "state.busy": "Busy", "state.released": "Link released",
-    "state.scale": "Scale page",
+    "state.scale": "Scale page", "state.no_water": "Needs water",
     "status.connecting": "Connecting", "status.no_hub": "Cannot reach the hub",
 
     "reason.radio_starting": "Connecting to the Bluetooth bridge", "reason.machine_not_found": "Machine not found",
@@ -211,6 +213,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "error.recipe_is_loaded": "This recipe is loaded on the machine. Cancel the load first.",
     "error.recipe_invalid": "The recipe is outside the machine's limits.", "error.recipe_exists": "A recipe already uses this id.",
     "error.machine_refused": "The machine refused the command.",
+    "error.no_water": "The tank is low, so the machine did not start. Refill it and press Start again.",
     "error.machine_unanswered": "The machine did not answer. Check its display.",
     "error.cancel_failed": "The machine did not answer the cancel.",
     "error.not_found": "Not found.",
@@ -249,6 +252,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "home.finished": "Brew finished", "home.scale": "Scale g", "home.recent": "Recent brews", "home.all_brews": "All brews",
     "home.count": "Brews", "home.total_water": "Water poured",
     "home.busy": "The machine is in use", "home.busy_hint": "Someone is using it, or it is on a screen the hub does not know.",
+    "home.no_water": "Refill the water tank", "home.no_water_hint": "The machine shows + WATER. Fill the tank; once it is back on standby you can brew again.",
     "home.ready": "Ready to brew", "home.asleep": "The machine is asleep",
     "home.pick": "Choose a recipe", "home.open": "Open", "home.all_recipes": "All recipes",
     "recipes.empty": "No recipes yet. Ask Claude Code to design one for your coffee; it appears here once saved.",

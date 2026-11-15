@@ -46,6 +46,9 @@ TABLE: dict[type[Exception], tuple[int, str]] = {
 
 
 def lookup(err: Exception) -> tuple[int, str]:
+    # The one refusal a person can fix at the machine: the tank is low.
+    if isinstance(err, CommandRefused) and err.reason == "no_water":
+        return (409, "no_water")
     # By class hierarchy, as the callers catch: a subclass added later must
     # not turn into a KeyError.
     return next(TABLE[cls] for cls in type(err).__mro__ if cls in TABLE)

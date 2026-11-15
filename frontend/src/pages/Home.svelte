@@ -107,6 +107,10 @@
   <h1>{t("home.unheard")}</h1>
   <p class="muted">{t("home.unheard_hint")}</p>
 
+{:else if name === "no_water"}
+  <h1>{t("home.no_water")}</h1>
+  <p class="muted">{t("home.no_water_hint")}</p>
+
 {:else if name === "busy"}
   <h1>{t("home.busy")}</h1>
   <p class="muted">{t("home.busy_hint")}</p>

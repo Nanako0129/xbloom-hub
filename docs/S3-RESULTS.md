@@ -176,6 +176,30 @@ every pour of the recipe has ended (40511 counted against the recipe's
 pours), and as `abandoned` otherwise. That record was corrected by the same
 rule.
 
+## Tank low (2026-11-15)
+
+A flush started from the hub with the tank nearly empty. The previous flush
+had just poured 150 ml. Measured on the real machine, in this order:
+
+1. The machine refused 8002 with reason `no_water` (refusal bit 0x000040).
+2. 0.25 s later: 40522, which the library names `RD_ErrorLackOfWater`.
+3. 0.2 s after that: activity 12, the screen showing "+ WATER".
+4. Nothing else arrived for 5 minutes. Then the machine changed to 10
+   (asleep) by itself. The 40521 field `water_enough` still read 1 the
+   whole time, so it is no warning.
+
+This confirms the earlier inference that 40522 means no water. The hub now
+reads state `no_water` while a 40522 is followed by screen 12. The flag
+clears on the next change to any other screen, or when the link ends. A
+refused start answers 409 `no_water`.
+
+Not yet seen:
+
+- Where the machine goes after a refill. The simulator assumes home (1).
+- The tank running out in the middle of a brew. A brew only closes on
+  40512, 40513, 36, home or asleep, so a brew record would stay open while
+  the machine shows 12.
+
 ## Known and left
 
 - A hub that connects in the 5 s a machine still reports 35 after a brew

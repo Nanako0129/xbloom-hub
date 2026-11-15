@@ -105,6 +105,14 @@ class SimListener:
         elif code == 8002:
             if self.start_answer == "refuse":
                 raise CommandRefused("execute", "machine_busy")
+            if self.start_answer == "no_water":
+                # Measured 2026-11-15: the refusal, then 40522 (0.25 s
+                # later), then the "+ WATER" screen (12, 0.2 s after that).
+                loop = asyncio.get_running_loop()
+                loop.call_later(0.02, self._on_raw, {"cmd": 40522})
+                loop.call_later(0.04, self._on_raw, {"cmd": 8023, "activity": 31})  # a repeat
+                loop.call_later(0.06, self._on_raw, {"cmd": 8023, "activity": 12})
+                raise CommandRefused("execute", "no_water")
             if self.start_answer == "ignore":
                 return False
             self._brewing = asyncio.create_task(self._brew())
@@ -129,6 +137,10 @@ class SimListener:
     # ---- things a person does at the machine ---------------------------- #
     def knob_start(self) -> None:
         self._brewing = asyncio.create_task(self._brew())
+
+    def refill(self) -> None:
+        self._recipe = None
+        self._on_raw({"cmd": 8023, "activity": 1})   # unmeasured: where a refill returns to
 
     def cup(self, on: bool) -> None:
         self._on_raw({"cmd": 9002 if on else 9008})

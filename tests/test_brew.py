@@ -168,6 +168,43 @@ def test_refused_start_leaves_it_armed_and_cancellable(tmp_path):
     asyncio.run(run())
 
 
+def test_no_water_names_itself_until_the_machine_moves_on(tmp_path):
+    class Dry(Fast):
+        start_answer = "no_water"
+
+    async def run():
+        machine, brews, task = await ready(tmp_path, Dry)
+        ticket = await armed(machine)
+        with pytest.raises(CommandRefused):
+            await machine.start(ticket)
+        assert await machine._wait_for(lambda: machine.state == "no_water", 1)
+        assert brews.list() == []
+        assert machine.snapshot()["recipe"] is None and machine.snapshot()["load_id"] is None
+        machine._listener._on_raw({"cmd": 8023, "activity": 12})   # the screen repeated
+        assert machine.state == "no_water"
+        machine._listener.refill()
+        assert machine.state == "idle"
+        # 12 alone (also seen on waking) is not "no water"...
+        machine._listener._on_raw({"cmd": 8023, "activity": 12})
+        assert machine.state == "busy"
+        # ...nor is 40522 on another screen, until 12 follows.
+        machine._listener._on_raw({"cmd": 8023, "activity": 1})
+        machine._listener._on_raw({"cmd": 40522})
+        assert machine.state == "idle"
+        machine._listener._on_raw({"cmd": 8023, "activity": 12})
+        assert machine.state == "no_water"
+        task.cancel()
+
+    asyncio.run(run())
+
+
+def test_no_water_refusal_is_its_own_error(tmp_path):
+    from xbloom_hub.errors import describe, lookup
+    assert lookup(CommandRefused("execute", "no_water")) == (409, "no_water")
+    assert lookup(CommandRefused("execute", "machine_busy")) == (502, "machine_refused")
+    assert describe(CommandRefused("execute", "no_water"))["error"] == "no_water"
+
+
 def test_unanswered_start(tmp_path):
     class Ignoring(Fast):
         start_answer = "ignore"                                      # never took it

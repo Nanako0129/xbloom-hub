@@ -104,7 +104,7 @@ a { color: var(--tint); text-decoration: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lamp { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
 .lamp[data-state="idle"], .lamp[data-state="asleep"], .lamp[data-state="scale"] { background: var(--ok); }
-.lamp[data-state="armed"] { background: var(--wait); }
+.lamp[data-state="armed"], .lamp[data-state="no_water"] { background: var(--wait); }
 .lamp[data-state="brewing"] { background: var(--water); }
 .lamp[data-state="offline"], .lamp[data-state="released"] { background: var(--stop); }
 
