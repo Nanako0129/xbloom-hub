@@ -562,7 +562,8 @@ class Machine:
                     self._listener = listener
                     ready = True
                     heard[0] = time.monotonic()
-                    watchdog = asyncio.create_task(watch_silence())
+                    if watchdog is None:            # one per session, however often it says ready
+                        watchdog = asyncio.create_task(watch_silence())
                     self._publish()
                 elif phase in ("failed", "auto_stopped", "released"):
                     if phase == "failed":
