@@ -38,7 +38,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "error.unauthorized": "這台裝置還沒配對。請在已配對裝置的「主控台」按「加入裝置」，再用這台的相機掃 QR code。",
     "error.not_ready": "機器現在的狀態不能這樣做。",
     "error.bad_ticket": "啟動憑證已失效。請取消後重新載入。",
-    "error.no_cup": "機器回報杯子被拿走了。放回杯子再試。",
     "error.recipe_is_loaded": "這份配方正載入在機器上，先取消載入。",
     "error.recipe_invalid": "配方內容不符合機器的限制。", "error.recipe_exists": "這個代號已經有配方在用。",
     "error.machine_refused": "機器拒絕了這個指令。",
@@ -69,7 +68,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "loading": "讀取中。", "connecting_hub": "正在連接 hub。",
 
-    "cup": "杯子", "cup.on": "已放好", "cup.off": "被拿走了", "cup.unknown": "機器未回報",
+    
     "tank": "水箱", "tank.ok": "足夠", "tank.low": "不足",
 
     "fact.dose": "粉量", "fact.water": "總水量", "fact.pours": "注水", "fact.grind": "研磨",
@@ -185,7 +184,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "error.unauthorized": "This device is not paired. On a paired device, open Console, press Add a device, and scan the QR code with this one's camera.",
     "error.not_ready": "The machine cannot do that in its current state.",
     "error.bad_ticket": "The start ticket is no longer valid. Cancel and load again.",
-    "error.no_cup": "The machine reports the cup was taken off. Put it back and try again.",
     "error.recipe_is_loaded": "This recipe is loaded on the machine. Cancel the load first.",
     "error.recipe_invalid": "The recipe is outside the machine's limits.", "error.recipe_exists": "A recipe already uses this id.",
     "error.machine_refused": "The machine refused the command.",
@@ -216,7 +214,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "loading": "Loading.", "connecting_hub": "Connecting to the hub.",
 
-    "cup": "Cup", "cup.on": "In place", "cup.off": "Taken off", "cup.unknown": "Not reported",
+    
     "tank": "Water tank", "tank.ok": "Enough", "tank.low": "Low",
 
     "fact.dose": "Dose", "fact.water": "Total water", "fact.pours": "Pours", "fact.grind": "Grind",

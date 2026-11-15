@@ -7,7 +7,7 @@
 // - the start ticket stays in this module's memory, never in the address,
 //   storage or a log; Start is offered only while the machine holds this
 //   page's own load, told by the hub's public load_id;
-// - a no_cup refusal keeps the ticket; any other outcome of a start spends it.
+// - any outcome of a start spends the ticket.
 import { api, hub } from "./hub.svelte";
 import { t } from "./i18n.svelte";
 import type { RecipeInfo } from "./recipes";
@@ -48,9 +48,8 @@ export async function start(): Promise<void> {
     await api("POST", "/api/machine/start", { ticket: ticket?.value });
     ticket = null; held.loadId = null;
   } catch (error) {
-    // The hub keeps the ticket when it refuses for a missing cup; in every
-    // other case it is spent or void, and so is ours.
-    if ((error as { code?: string }).code !== "no_cup") { ticket = null; held.loadId = null; }
+    // A refused start spends or voids the ticket, and so ours.
+    ticket = null; held.loadId = null;
     throw error;
   }
 }

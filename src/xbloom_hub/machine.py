@@ -65,7 +65,6 @@ RESUME_WINDOW_S = 180
 SILENT_LINK_S = 10.0
 RESUME_CHECK_S = 20       # how long after a resume a lower pour or water count means another cup
 WATER_BACK_ML = 5.0       # a water count this far below the last one is not the same cup
-CMD_CUP_ON, CMD_CUP_OFF = 9002, 9008
 CMD_WEIGHT, CMD_WATER, CMD_STATUS = 20501, 40523, 40521
 
 TICKET_TTL_S = 600
@@ -81,10 +80,6 @@ class CancelFailed(RuntimeError):
 
 class BadTicket(RuntimeError):
     """The start ticket is missing, wrong, already used or expired."""
-
-
-class NoCup(RuntimeError):
-    """The machine's last cradle event says the cup was taken off."""
 
 
 def _default_listener(*args, **kwargs):
@@ -105,7 +100,6 @@ class Machine:
         self._started_at: float | None = None  # when the hub last wrote 8002
         self._stop_lock = asyncio.Lock()
         self._water: float | None = None
-        self._cup: bool | None = None          # last cradle event; None = none seen
         self._listener = None
         self._lifecycle: asyncio.Queue | None = None
         self._released = False
@@ -160,7 +154,6 @@ class Machine:
             "activity": self._activity,
             "weight_g": self._weight,
             "water_ml": self._water,
-            "cup": self._cup,
             "preload_weight_g": self._preload_weight,
             "recipe": self._recipe,
             "brew": None if brew is None else {
@@ -207,10 +200,6 @@ class Machine:
             self._weight = decoded["weight_g"]
         if "water_ml" in decoded:
             self._water = decoded["water_ml"]
-        if cmd == CMD_CUP_ON:
-            self._cup = True
-        elif cmd == CMD_CUP_OFF:
-            self._cup = False
 
         previous = self._activity
         if "activity" in decoded:
@@ -511,7 +500,6 @@ class Machine:
         self._finished = False
         self._weight = None
         self._water = None
-        self._cup = None
 
         heard = [time.monotonic()]
 
@@ -585,7 +573,6 @@ class Machine:
                 self._finished = False
                 self._weight = None
                 self._water = None
-                self._cup = None
                 self._clear_load()
                 self._no_session.set()
                 self._publish()
@@ -687,8 +674,6 @@ class Machine:
                 self._ticket = None
                 self._publish()                 # its load_id goes from every page at once
                 raise BadTicket("the start ticket has expired; cancel and load again")
-            if self._cup is False:
-                raise NoCup("the machine reported the cup was taken off")
             # Consumed before anything is sent: a start is never repeated.
             self._ticket = None
             self._started_at = time.monotonic()

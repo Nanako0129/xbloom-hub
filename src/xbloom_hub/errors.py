@@ -7,7 +7,7 @@ from xbloom.ble import CommandRefused, CommandUnanswered
 from .brews import BadBrewId
 from .community import BadQuery, BadShareLink, CommunityBusy, CommunityFailed, NotImportable
 from .gate import GateRefused
-from .machine import BadTicket, CancelFailed, NoCup, NotReady
+from .machine import BadTicket, CancelFailed, NotReady
 from .pairing import BadPairingCode
 from .recipes import BadSlug, RecipeExists, RecipeInvalid
 
@@ -28,7 +28,6 @@ TABLE: dict[type[Exception], tuple[int, str]] = {
     BadBrewId: (400, "bad_brew_id"),
     NotReady: (409, "not_ready"),
     BadTicket: (403, "bad_ticket"),
-    NoCup: (409, "no_cup"),
     RecipeLoaded: (409, "recipe_is_loaded"),
     CancelFailed: (502, "cancel_failed"),
     CommandRefused: (502, "machine_refused"),

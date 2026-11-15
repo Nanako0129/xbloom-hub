@@ -16,7 +16,7 @@ from xbloom_hub import gate
 import xbloom_hub.machine as machine_module
 from xbloom_hub.app import CSP, check_allowed_hosts, create_app
 from xbloom_hub.brews import BadBrewId, BrewStore
-from xbloom_hub.machine import BadTicket, Machine, NoCup, NotReady
+from xbloom_hub.machine import BadTicket, Machine, NotReady
 from xbloom_hub.recipes import RecipeStore, as_sent, checked, to_machine
 from xbloom_hub.sim import SimListener, SimRadio, _SimClient
 
@@ -144,22 +144,6 @@ def test_ticket_is_void_after_cancel_another_load_or_expiry(tmp_path, monkeypatc
         with pytest.raises(BadTicket):
             await machine.start(second)                              # and gone for good
         assert 8002 not in gate_log(machine)
-        task.cancel()
-
-    asyncio.run(run())
-
-
-def test_no_start_when_the_cup_was_taken_off(tmp_path):
-    async def run():
-        machine, _, task = await ready(tmp_path)
-        assert machine.snapshot()["cup"] is None                     # no event seen yet
-        ticket = await armed(machine)
-        machine._listener.cup(False)
-        with pytest.raises(NoCup):
-            await machine.start(ticket)
-        assert machine.state == "armed" and 8002 not in gate_log(machine)
-        machine._listener.cup(True)
-        assert (await machine.start(ticket))["state"] == "brewing"   # the ticket was not consumed
         task.cancel()
 
     asyncio.run(run())
@@ -487,7 +471,7 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
     # Keys built at run time: every value the hub can send has an entry.
     for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released", "unheard")),
                            ("ending", ("finished", "stopped", "abandoned", "home", "asleep", "link_lost")),
-                           ("error", ("unauthorized", "not_ready", "bad_ticket", "no_cup", "recipe_is_loaded",
+                           ("error", ("unauthorized", "not_ready", "bad_ticket", "recipe_is_loaded",
                                       "recipe_invalid", "recipe_exists", "machine_refused", "machine_unanswered",
                                       "cancel_failed", "not_found", "foreign_origin")),
                            ("meta", ("bean", "roaster", "process", "roast", "source", "notes")),

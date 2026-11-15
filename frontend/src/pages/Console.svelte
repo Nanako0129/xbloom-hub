@@ -2,7 +2,7 @@
   import { api, hub, hasToken } from "../lib/hub.svelte";
   import { act, work, release, acquire, ask } from "../lib/actions.svelte";
   import { t, setLanguage, language, LANGUAGE_NAMES, locale } from "../lib/i18n.svelte";
-  import { stateName, reasonText, cupText, tankText } from "../lib/words";
+  import { stateName, reasonText, tankText } from "../lib/words";
   import PairPanel from "../components/PairPanel.svelte";
 
   let gate = $state<{ at: number; code: number }[]>([]);
@@ -38,7 +38,6 @@
           <dt>{t("console.firmware")}</dt><dd class="num">{s.fw_version ?? "-"}</dd>
           <dt>{t("console.activity")}</dt><dd class="num">{s.activity ?? "-"}</dd>
           <dt>{t("tank")}</dt><dd>{tankText(s.water_enough)}</dd>
-          <dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd>
           <dt>{t("console.token")}</dt><dd>{hasToken() ? t("console.token_yes") : t("console.token_no")}</dd>
           <dt><label for="language">{t("console.language")}</label></dt>
           <dd>
