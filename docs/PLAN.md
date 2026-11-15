@@ -972,6 +972,68 @@ pull request of step 6 is reverted.
 here: stop and ask. An npm command is about to run on the host: stop. The CSP would have to change: stop and ask. A browser
 test of a safety flow fails on the new page: the switch waits.
 
+## S3e — a scale of its own
+
+Asked for by the owner on 2026-11-15 (「單獨設計一個磅秤功能，獨立出來」):
+a scale that stands apart from brewing, to weigh beans or anything else on
+the machine's platform, with a zero.
+
+**What the machine offers** (xbloom-py 0.5.0, `ble.py`, from the official
+app's own codes): 8003 routes the machine's screen to its scale page (no
+data); 8500 zeroes the scale (no data); 8014 leaves the scale page for home
+(the app's back-press there). None grinds, pours or heats. The weight is the
+20501 stream the hub already reads, about 9.5 a second (measured
+2026-11-15). The library notes activity 4 and 5 as "scale settle"; what the
+machine reports on its scale page is to be measured.
+
+**Outcome.** A Scale page (its own tab) shows the weight in large dot-matrix
+numerals, live, with Zero and, when the machine is on its scale page, Leave.
+The page offers "Use the scale", which puts the machine on its scale page.
+Zero zeroes the scale. Nothing on this page can grind, pour, heat or start a
+brew.
+
+**Scope.**
+
+- `gate.py`: a set `SCALE = {8003, 8500, 8014}` added to `ALLOWED`. These
+  codes are sent only through three `Machine` methods.
+- `Machine.scale_enter()` (8003): only when the state is idle or asleep
+  (never armed, brewing, finished or busy: it would leave a loaded recipe or
+  interrupt the machine's own screens). `Machine.tare()` (8500): only when
+  idle, asleep or on the scale page; never armed or brewing (a brew has its
+  own zero handling). `Machine.scale_quit()` (8014): only on the scale page.
+  Each under the lock `load()` and `start()` hold, each answering NotReady
+  otherwise, each sent with `send_confirmed` like the others.
+- A hub state `scale` for the machine's scale page: the activity values
+  seen there once measured (4 and 5 per the library until then). Not a
+  brew: `_NOT_A_BREW` already holds 4 and 5.
+- REST: `POST /api/scale/enter`, `/api/scale/tare`, `/api/scale/quit`,
+  behind the token like every write. No MCP tool (not asked for).
+- The simulator answers 8003 with activity 4, 8014 with 1, 8500 by setting
+  its weight to 0.
+- The page: a "Scale" tab, the weight (one decimal, the number the machine
+  reports, no zero of the hub's own), buttons Use the scale / Zero / Leave,
+  enabled by state as above; zh-Hant 「磅秤」.
+
+**Non-goals.** A timer, a units switch (8005), recipes from the scale,
+weighing during a brew.
+
+**What must stay true.** The start gate is unchanged: 8002 still passes only
+through `Machine.start()`'s permit. None of the three codes is sent while
+armed or brewing. The gate log shows every one.
+
+**Acceptance.** Tests: the gate passes 8003, 8500, 8014 only through the
+three methods' sends and refuses codes outside `ALLOWED`; each method refuses
+in the states above; the simulator flow enter → tare → quit gives scale →
+weight 0 → idle; REST needs the token. Browser (Chromium and WebKit): the
+Scale tab shows the weight; Use the scale, Zero and Leave work against the
+simulator and are disabled while a recipe is loaded. On the machine (owner
+present): enter, weigh something, zero, weigh again, leave; the activity
+values on the scale page are recorded and the state mapping set from them.
+
+**Stops.** 8003, 8500 or 8014 does anything but route, zero or leave on the
+machine: stop and record it. The scale page reports an activity that the hub
+would read as a brew: stop before shipping the state.
+
 ## S3d — pairing a device by QR code
 
 Done 2026-11-14 (PRs #24, #25): the owner opened the console on the Mac,
