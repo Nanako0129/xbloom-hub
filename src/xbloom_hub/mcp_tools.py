@@ -91,7 +91,8 @@ def build_server(machine: Machine, store: RecipeStore, community: Community) -> 
 
     @server.tool(description="The machine's current state: offline, idle, asleep, armed "
                              "(a recipe is loaded and waiting), brewing, finished (the screen after "
-                             "a brew; a load has to wait for idle), busy or released. "
+                             "a brew; a load has to wait for idle), scale (this hub put the machine on "
+                             "its scale page; a load has to wait until it leaves), busy or released. "
                              "weight_g is "
                              "the scale's reading after its last tare and is 0 with a cup on "
                              "it once a recipe has been loaded; it does not show whether a "

@@ -63,6 +63,10 @@ export async function stop(): Promise<void> {
 
 export const cancel = () => api("POST", "/api/machine/cancel");
 export const release = () => api("POST", "/api/link/release");
+// The scale page (S3e). The hub decides whether each is allowed now.
+export const scaleEnter = () => api("POST", "/api/scale/enter");
+export const tare = () => api("POST", "/api/scale/tare");
+export const scaleQuit = () => api("POST", "/api/scale/quit");
 export const acquire = () => api("POST", "/api/link/acquire");
 
 // ---- the confirmation dialog --------------------------------------------------

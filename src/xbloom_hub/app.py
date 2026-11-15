@@ -262,6 +262,15 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
     async def stop(request):
         return JSONResponse(await machine.stop())
 
+    async def scale_enter(request):
+        return JSONResponse(await machine.scale_enter())
+
+    async def tare(request):
+        return JSONResponse(await machine.tare())
+
+    async def scale_quit(request):
+        return JSONResponse(await machine.scale_quit())
+
     async def recipe_plan(request):
         recipe = store.get(request.path_params["slug"])
         if recipe is None:
@@ -415,6 +424,13 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/machine/cancel", cancel, methods=["POST"]),
             Route("/api/machine/start", start, methods=["POST"]),
             Route("/api/machine/stop", stop, methods=["POST"]),
+            # Mounted, so a GET is answered 405 here rather than falling
+            # through to the dashboard's files below (S3e, P3-2).
+            Mount("/api/scale", routes=[
+                Route("/enter", scale_enter, methods=["POST"]),
+                Route("/tare", tare, methods=["POST"]),
+                Route("/quit", scale_quit, methods=["POST"]),
+            ]),
             Route("/api/brews", brew_list),
             Route("/api/brews/{brew_id}", brew_item),
             Route("/api/link/release", release, methods=["POST"]),

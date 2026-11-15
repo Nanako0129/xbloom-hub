@@ -8,6 +8,7 @@ function parse(hash: string): Route {
   if (parts[0] === "community") return { name: "community", id: parts[1] };
   if (parts[0] === "compare") return { name: "compare", ids: parts.slice(1) };
   if (parts[0] === "console") return { name: "console" };
+  if (parts[0] === "scale") return { name: "scale" };
   return { name: "home" };
 }
 
