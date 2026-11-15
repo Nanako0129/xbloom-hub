@@ -29,14 +29,15 @@ WORKDIR /app
 # Dependencies first, for the layer cache; --locked fails if uv.lock and
 # pyproject.toml disagree instead of resolving anew.
 COPY pyproject.toml uv.lock README.md ./
-# uv is mounted for these steps only, so it never lands in a layer.
-RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+# uv and its download cache are mounted for these steps only, so neither
+# lands in a layer.
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 # Only these paths: never secrets/ or data/, whatever the build context holds
 # (S4-8).
 COPY src/ ./src/
 COPY --from=web /app/src/xbloom_hub/web ./src/xbloom_hub/web
-RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable \
     && useradd --uid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin hub
 

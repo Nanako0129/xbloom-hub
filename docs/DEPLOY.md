@@ -213,3 +213,18 @@ why it is not the default.
 The page, REST and MCP are plain HTTP. With the hub on a server, every call
 from another computer carries the token across the LAN, where on a single
 machine it stayed on loopback. Rotating it: docs/DASHBOARD.md.
+
+## Checking that no secret is in the image or the container
+
+Count, never print. Each secret must count 0, and the known string first
+must count more than 0, or a 0 means nothing (newer Docker saves images with
+compressed layers, which `tools/count-in-image.py` opens one by one):
+
+```bash
+cd <dir>
+printf 'proxy_headers=False' > /tmp/known
+sudo docker image save xbloom-hub:local | python3 tools/count-in-image.py /tmp/known
+sudo docker image save xbloom-hub:local | sudo python3 tools/count-in-image.py secrets/hub_token
+sudo docker image save xbloom-hub:local | sudo python3 tools/count-in-image.py secrets/proxy_psk
+sudo docker inspect xbloom-hub-hub-1 | sudo grep -c -F -f secrets/proxy_psk
+```

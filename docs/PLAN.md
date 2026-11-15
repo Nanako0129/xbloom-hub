@@ -1168,8 +1168,9 @@ token (DASHBOARD.md already says how).
 - the container's configuration holding neither secret: its environment
   read as names only, and a count of each secret's occurrences in the
   inspect output, computed on the server without printing it, equal to 0;
-- the same count over the saved image (`docker image save`, the pattern
-  read from the file with `grep -c -F -f`), equal to 0;
+- the same count over the saved image (`docker image save` through
+  `tools/count-in-image.py`, which opens compressed layers; a known string
+  counted first must be above 0), equal to 0;
 - a request from outside the allowed networks refused, and a request from
   the Mac and the phone answered, by their own addresses;
 - one MCP call from Claude Code on the Mac;
