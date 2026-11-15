@@ -49,7 +49,8 @@ These come from the security review below; the IDs point at its findings.
 
 1. **One write gate (P1-1).** Every GATT write goes through one function. It
    decodes the frame's command code (`ble.frame_command_code`, `ble.py:776`)
-   and permits only the codes its caller's path needs:
+   and permits only the codes listed here, from whichever path (each path's
+   own preconditions decide when the hub sends them):
    - load: 8100, 8102, 8104, 8001, 8004
    - safe controls: 40519 (stop), 8017 (cancel a load)
    - scale (S3e): 8003 (to the scale page), 8500 (zero), 8014 (leave it),
@@ -1000,8 +1001,9 @@ brew.
   CANCEL and STOP, the gate passes them from any path; the hub's own code
   sends them only from three `Machine` methods, whose state preconditions
   are what the tests check. 8002 stays behind its permit.
-- `Machine.scale_enter()` (8003): only when the state is idle or asleep
-  (never armed, brewing, finished or busy: it would leave a loaded recipe or
+- `Machine.scale_enter()` (8003): only when the state is idle (never
+  asleep, whose 10 would clear the flag at once, nor armed, brewing,
+  finished or busy: it would leave a loaded recipe or
   interrupt the machine's own screens). `Machine.tare()` (8500): only when
   idle or on the scale page; never armed, brewing or asleep (a zero on a
   sleeping machine wakes it to no use). `Machine.scale_quit()` (8014): only on the scale page.
@@ -1046,7 +1048,7 @@ while armed or brewing. The gate log shows every one.
 8017, 40519, 8003, 8500 and 8014; `gate.check()` passes the scale three and
 refuses 8002 with no permit, 8005, 8006, 8007, 8012, 8016, 8021, 8022, 4508,
 4510, 3505, 8010, 11511, 40524 and an undecodable frame; each method
-refuses (NotReady) in the states above and sends nothing then; activity 4
+refuses (NotReady) in the states above (asleep included for enter and Zero) and sends nothing then; activity 4
 then 5 arriving at home with no hub 8003: the state is not `scale` and
 `scale_quit()` refuses with no 8014 in the gate log; a brew open, then 4
 and 5: the record stays open; the flag set, then activity 3 or 30: not
