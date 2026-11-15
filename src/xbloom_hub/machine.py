@@ -34,12 +34,13 @@ WATER_UNITS_PER_ML = 1000
 # Values known to be something other than a brew: home, asleep, recipe ready,
 # finished, and 29 (after the handshake), 4 and 5 (tare).
 _NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
-# What the machine may report on its scale page (docs/PLAN.md, S3e): home and
-# the two values xbloom-py calls "scale settle", until the values on that page
-# are measured. The hub's scale flag survives only these. 4 and 5 also follow
-# the machine's own tare key on any screen, so they never join _HOME: as home
-# they would close a running brew's record and take its Stop away.
-SCALE_PAGE = frozenset({1, 65, 4, 5})
+# What the machine reports on its scale page (docs/PLAN.md, S3e), measured
+# 2026-11-15: 8003 → 4, then 5 a second later; a zero there → 4 → 5; 8014 →
+# 1 (home). Home is not among them, so leaving the page at the machine clears
+# the hub's scale flag. 4 and 5 also follow the machine's own tare key on any
+# screen, so they never join _HOME: as home they would close a running
+# brew's record and take its Stop away.
+SCALE_PAGE = frozenset({4, 5})
 TARE_SETTLE = frozenset({4, 5})   # reported after a zero, on any screen (ble.py:735)
 # The machine sets its scale back to zero about 5 s into a brew, with water
 # already in the cup (docs/S3-RESULTS.md: 5.6 g, 4.95 g and 5.7 g were lost

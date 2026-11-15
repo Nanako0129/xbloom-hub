@@ -184,11 +184,13 @@ def test_the_flag_survives_only_scale_page_values(tmp_path):
             assert machine._on_scale is False, value
             activity(machine, 1)                  # 35 opened a brew; home closes it
             assert machine.state == "idle", value
-        # Values on the scale page keep it.
+        # Values on the scale page keep it (measured: 4, then 5); home clears it.
         await machine.scale_enter()
-        for value in (5, 4, 1, 65):
+        for value in (5, 4, 5):
             activity(machine, value)
             assert machine.state == "scale", value
+        activity(machine, 1)
+        assert machine.state == "idle" and machine._on_scale is False
         task.cancel()
 
     asyncio.run(run())
@@ -351,6 +353,22 @@ def test_going_to_the_scale_refuses_with_a_start_just_sent(tmp_path):
         machine._started_at = 1.0                   # as just after a start
         with pytest.raises(NotReady):
             await machine.scale_enter()
+        task.cancel()
+
+    asyncio.run(run())
+
+
+
+def test_leaving_the_scale_page_at_the_machine_clears_the_scale_state(tmp_path):
+    # Measured 2026-11-15: the scale page reports 4 then 5; home is 1.
+    async def run():
+        machine, task = await ready(tmp_path)
+        await machine.scale_enter()
+        assert machine.state == "scale"
+        machine._listener._on_raw({"cmd": 8023, "activity": 1})   # the knob, at the machine
+        assert machine.state == "idle"
+        with pytest.raises(NotReady):
+            await machine.scale_quit()
         task.cancel()
 
     asyncio.run(run())

@@ -109,13 +109,16 @@ class SimListener:
                 return False
             self._brewing = asyncio.create_task(self._brew())
             return self.start_answer != "lost"
-        elif code == 8003:                      # to the scale page
+        elif code == 8003:                      # to the scale page: 4, then 5 (measured)
             self._on_raw({"cmd": 8023, "activity": 4})
+            self._on_raw({"cmd": 8023, "activity": 5})
         elif code == 8014:                      # leave it for home
             self._on_raw({"cmd": 8023, "activity": 1})
-        elif code == 8500:                      # zero
+        elif code == 8500:                      # zero: the settle 4, then 5 (measured)
             self._weight = 0.0
             self._on_raw({"cmd": 20501, "weight_g": self._weight})
+            self._on_raw({"cmd": 8023, "activity": 4})
+            self._on_raw({"cmd": 8023, "activity": 5})
         elif code == 40519:
             if self._brewing is not None:
                 self._brewing.cancel()
