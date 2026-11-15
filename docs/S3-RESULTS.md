@@ -188,6 +188,12 @@ had just poured 150 ml. Measured on the real machine, in this order:
    (asleep) by itself. The 40521 field `water_enough` still read 1 the
    whole time, so it is no warning.
 
+The same evening, with this build, a second dry start showed "水箱要加水"
+on the page (the owner's check). After the refill the machine went back to
+the recipe screen (31) and then home (1) 6 s later. On 31 the page read
+"busy": the hub had ended the load at 40522, and the refused start had used
+up its ticket, so starting again needs a new load either way.
+
 This confirms the earlier inference that 40522 means no water. The hub now
 reads state `no_water` while a 40522 is followed by screen 12. The flag
 clears on the next change to any other screen, or when the link ends. A
@@ -195,7 +201,6 @@ refused start answers 409 `no_water`.
 
 Not yet seen:
 
-- Where the machine goes after a refill. The simulator assumes home (1).
 - The tank running out in the middle of a brew. A brew only closes on
   40512, 40513, 36, home or asleep, so a brew record would stay open while
   the machine shows 12.

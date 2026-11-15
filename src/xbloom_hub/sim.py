@@ -140,7 +140,9 @@ class SimListener:
 
     def refill(self) -> None:
         self._recipe = None
-        self._on_raw({"cmd": 8023, "activity": 1})   # unmeasured: where a refill returns to
+        # Measured 2026-11-15: back to the recipe screen, then home 6 s later.
+        self._on_raw({"cmd": 8023, "activity": 31})
+        self._on_raw({"cmd": 8023, "activity": 1})
 
     def cup(self, on: bool) -> None:
         self._on_raw({"cmd": 9002 if on else 9008})
