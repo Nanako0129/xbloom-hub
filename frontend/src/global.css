@@ -649,6 +649,7 @@ button.play .icon { width: 16px; height: 16px; }
 .chart .key-mark .mark-start { border-left-style: dotted; border-color: var(--muted); }
 .chart .key-mark .mark-end { border-left-style: solid; border-color: var(--water); }
 .chart .key-mark .mark-rezero { border-left-style: dashed; border-color: var(--coffee); }
+.chart .key-mark .mark-grind { border-left-style: dotted; border-color: var(--coffee); }
 .chart .legend .key.zoomed { color: var(--tint); border-color: currentColor; }
 
 /* ---- history ---- */

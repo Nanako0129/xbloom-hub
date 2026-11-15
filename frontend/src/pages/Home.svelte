@@ -60,14 +60,20 @@
   // ---- the brew that is running ---------------------------------------------
   const pourText = $derived.by(() => {
     const brew = s?.brew;
-    if (!brew || brew.pour === null || brew.pour === undefined) return t("brew.preparing");
+    // 34: the grinder is running (measured 2026-11-15), before any pour.
+    if (!brew || brew.pour === null || brew.pour === undefined) return t(s?.activity === 34 ? "brew.grinding" : "brew.preparing");
     const total = info?.recipe.pours.length;
     return total ? t("brew.pour_of", { n: brew.pour + 1, total }) : t("brew.pour", { n: brew.pour + 1 });
   });
   const liveMarks = $derived(startMarks(Object.entries(live.startAt).map(([i, time]) => [Number(i), time] as [number, number])));
   const liveLines = $derived.by((): Line[] => {
     const out: Line[] = [];
-    if (info) out.push({ key: "plan", kind: "plan", label: t("chart.plan"), points: planLine(info.plan) });
+    // The plan counts from the first pour; grinding comes before it. Drawn
+    // once the first pour is seen, from that moment.
+    const first = live.startAt[0];
+    if (info && first !== undefined)
+      out.push({ key: "plan", kind: "plan", label: t("chart.plan"),
+                 points: planLine(info.plan).map(([x, y]) => [x + first, y] as [number, number]) });
     out.push({ key: "water", kind: "water", label: t("chart.water"), points: live.water, gaps: live.gaps });
     out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: live.weight, gaps: live.gaps });
     return out;

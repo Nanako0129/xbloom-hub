@@ -296,3 +296,16 @@ def test_a_page_that_missed_reports_fills_them_from_the_record(ui, hub, monkeypa
     assert asked, "the page did not fetch the record after missing reports"
     assert hub.state()["state"] == "brewing"              # asked while brewing: not the finished view's fetch
     hub.api("POST", "/api/machine/stop")                  # not left brewing for 25 s
+
+
+def test_grinding_is_marked_before_the_first_pour(ui, hub):
+    seed(hub, "20261105-080000-gggg", "2026-11-05T08:00:00+08:00")
+    path = Path(hub.machine._brews._dir) / "20261105-080000-gggg.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["events"] = [[0.3, {"cmd": 40506}], [2.0, {"cmd": 40507}]] + record["events"]
+    path.write_text(json.dumps(record), encoding="utf-8")
+    canvas = open_record(ui, "20261105-080000-gggg")
+    box = canvas.bounding_box()
+    expect(ui.locator("#view .legend").get_by_text("Grinding")).to_be_visible()
+    ui.mouse.click(plot_x(box, 2.0), box["y"] + FLAG_Y)     # the start at 0.3 s sits by pour 1's at 0.6 s
+    expect(ui.locator("#view .reading .mark-name")).to_have_text("Grinding ends")
