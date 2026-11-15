@@ -57,6 +57,12 @@ CMD_POUR_END = 40511
 # page's chart and its Stop are the same brew's. 2026-11-14: a release in the
 # middle of a brew had cut one cup into two records.
 RESUME_WINDOW_S = 180
+# A live link carries a frame several times a second (9.5/s measured, idle,
+# 2026-11-15; longest gap 0.69 s). The official app drops a link after 2 s
+# without one and connects again. A link this long silent is dead even if the
+# proxy still calls it connected (2026-11-14: "busy" for an hour, the machine
+# showing no link): the session ends and the hub searches again.
+SILENT_LINK_S = 10.0
 RESUME_CHECK_S = 20       # how long after a resume a lower pour or water count means another cup
 WATER_BACK_ML = 5.0       # a water count this far below the last one is not the same cup
 CMD_CUP_ON, CMD_CUP_OFF = 9002, 9008
@@ -507,11 +513,22 @@ class Machine:
         self._water = None
         self._cup = None
 
+        heard = [time.monotonic()]
+
         def on_raw(decoded: dict) -> None:
             # Notifications keep arriving until the link is really closed;
             # ones from a session that is over must not pass for current state.
             if self._lifecycle is lifecycle:
+                heard[0] = time.monotonic()
                 self._on_raw(decoded)
+
+        async def watch_silence() -> None:
+            while True:
+                await asyncio.sleep(SILENT_LINK_S / 4)
+                if time.monotonic() - heard[0] > SILENT_LINK_S:
+                    log.warning("no frame from the machine for %.0f s: the link is dead", SILENT_LINK_S)
+                    lifecycle.put_nowait(("failed", {"reason": "silent_link"}))
+                    return
 
         async def resolver():
             return device
@@ -528,6 +545,7 @@ class Machine:
             on_raw=on_raw,
         )
         ready = False
+        watchdog = None
         try:
             await listener.start()
             while True:
@@ -543,12 +561,17 @@ class Machine:
                     self._error = None
                     self._listener = listener
                     ready = True
+                    heard[0] = time.monotonic()
+                    if watchdog is None:            # one per session, however often it says ready
+                        watchdog = asyncio.create_task(watch_silence())
                     self._publish()
                 elif phase in ("failed", "auto_stopped", "released"):
                     if phase == "failed":
                         self._error = payload.get("reason")
                     return ready
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
             self._lifecycle = None
             if self._brew is not None:
                 self._suspend_brew()                # before the listener goes: no gap
