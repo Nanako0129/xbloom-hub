@@ -28,10 +28,10 @@ export function previewPlan(pours: Pour[]): Plan {
     const volume = Number(pour.volume_ml) || 0, flow = Number(pour.flow_rate) || 0, pause = Number(pour.pause_s) || 0;
     const duration = flow > 0 ? volume / flow : 0;
     total += volume;
-    if (pour.agitate_before === 1) clock += AGITATE_S;
+    if (Number(pour.agitate_before) === 1) clock += AGITATE_S;
     const row = { start_s: clock, end_s: clock + duration, volume_ml: volume, cumulative_ml: total,
                   temperature_c: Number(pour.temperature_c) || 0, pause_s: pause };
-    clock += duration + (pour.agitate_after === 1 ? AGITATE_S : 0) + pause;
+    clock += duration + (Number(pour.agitate_after) === 1 ? AGITATE_S : 0) + pause;
     return row;
   });
   return { pours: out, total_ml: total, pour_end_s: out.length ? out[out.length - 1].end_s : 0 };

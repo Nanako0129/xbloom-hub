@@ -24,7 +24,8 @@
   });
 
   const starts = $derived(record ? pourStarts(record) : []);
-  const offset = $derived(starts.length ? starts[0] : 0);       // the plan's zero is the first pour
+  // The first pour seen is the plan's first pour, which may itself start late (agitation before it).
+  const offset = $derived(starts.length ? starts[0] - (record?.plan?.pours[0]?.start_s ?? 0) : 0);
   const lines = $derived.by((): Line[] => {
     if (!record) return [];
     const out: Line[] = [];

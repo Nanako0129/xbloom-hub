@@ -73,7 +73,8 @@
     const first = live.startAt[0];
     if (info && first !== undefined)
       out.push({ key: "plan", kind: "plan", label: t("chart.plan"),
-                 points: planLine(info.plan).map(([x, y]) => [x + first, y] as [number, number]) });
+                 // The plan's first pour may itself start late (agitation before it).
+                 points: planLine(info.plan).map(([x, y]) => [x + first - (info.plan.pours[0]?.start_s ?? 0), y] as [number, number]) });
     out.push({ key: "water", kind: "water", label: t("chart.water"), points: live.water, gaps: live.gaps });
     out.push({ key: "coffee", kind: "coffee", label: t("chart.coffee"), points: live.weight, gaps: live.gaps });
     return out;
