@@ -6,7 +6,7 @@
   import { t } from "../lib/i18n.svelte";
   import { live } from "../lib/live.svelte";
   import { clock, whole, when, endingText } from "../lib/format";
-  import { reasonText, cupText, tankText, unheard } from "../lib/words";
+  import { reasonText, tankText, unheard } from "../lib/words";
   import { eventMarks, planLine, recordName, startMarks, startsByIndex, type BrewRecord, type BrewSummary } from "../lib/records";
   import type { LibraryEntry, RecipeInfo } from "../lib/recipes";
   import Chart, { type Line } from "../components/Chart.svelte";
@@ -138,7 +138,7 @@
           <Readout value={info.as_sent.ratio.split(":").pop() ?? "-"} label={t("readout.ratio")} spoken={info.as_sent.ratio} />
           <Readout value=">" label={t("readout.waiting")} spoken={t("readout.waiting")} />
         </div>
-        <section class="card"><RecipeFacts {info} /><dl class="facts"><dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd></dl></section>
+        <section class="card"><RecipeFacts {info} /></section>
       {/if}
       {#if !ownLoad()}<p class="notice">{t("armed.not_mine")}</p>{/if}
       <div class="actions">
@@ -181,7 +181,7 @@
     <div class="home-now">
       <section class="card scale">
         <Readout value={whole(s.weight_g)} label={t("home.scale")} />
-        <dl class="facts"><dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd><dt>{t("tank")}</dt><dd>{tankText(s.water_enough)}</dd></dl>
+        <dl class="facts"><dt>{t("tank")}</dt><dd>{tankText(s.water_enough)}</dd></dl>
       </section>
       <div class="tiles">
         <a class="tile" href="#/recipes"><span class="icon"><Icon name="list" /></span><span>{t("tab.recipes")}</span></a>

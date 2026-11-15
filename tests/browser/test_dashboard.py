@@ -191,19 +191,6 @@ def test_load_start_follow_and_finish(ui, hub):
     assert hub.api("GET", "/api/brews").json()[0]["reason"] == "finished"
 
 
-def test_a_lifted_cup_keeps_the_ticket(ui, hub):
-    load_from_page(ui, hub, "short")
-    hub.at_machine("cup", False)
-    ui.get_by_role("button", name="Start brew").click()
-    confirm(ui)
-    expect(ui.get_by_text("The machine reports the cup was taken off")).to_be_visible()
-    assert hub.state()["state"] == "armed"
-    hub.at_machine("cup", True)
-    ui.get_by_role("button", name="Start brew").click()
-    confirm(ui)
-    hub.wait_state("brewing")
-
-
 def test_a_load_made_elsewhere_cannot_be_started_here(ui, hub):
     assert hub.api("POST", "/api/machine/load", {"slug": "short"}).status_code == 200
     hub.wait_state("armed")

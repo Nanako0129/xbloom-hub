@@ -1,6 +1,6 @@
 <script lang="ts">
   import { hub } from "../lib/hub.svelte";
-  import { stateLabel, stateDetail, cupText, tankText, unheard } from "../lib/words";
+  import { stateLabel, stateDetail, tankText, unheard } from "../lib/words";
   import { t } from "../lib/i18n.svelte";
   import { act, work, release, acquire, ask } from "../lib/actions.svelte";
 
@@ -14,7 +14,6 @@
   <div class="state"><span class="lamp" data-state={unheard(s) ? "unheard" : s.state}></span>{stateLabel(s)}</div>
   {#if stateDetail(s)}<div class="muted">{stateDetail(s)}</div>{/if}
   <dl class="facts">
-    <dt>{t("cup")}</dt><dd>{cupText(s.cup)}</dd>
     <dt>{t("tank")}</dt><dd>{tankText(s.water_enough)}</dd>
     <dt>{t("console.firmware")}</dt><dd class="num">{s.fw_version ?? "-"}</dd>
   </dl>
