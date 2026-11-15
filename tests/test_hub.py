@@ -624,3 +624,37 @@ def test_the_hub_answers_only_its_own_host_unless_told(tmp_path):
     app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"],
                      allowed_networks=parse_networks("192.168.123.0/24"))
     assert TestClient(app, client=("::ffff:192.168.123.40", 1)).get("/api/state").status_code == 200
+
+
+def test_a_forwarded_header_does_not_move_the_client(tmp_path):
+    """S4-6: through the real server options, a loopback client claiming to
+    be 10.1.2.3 is still loopback, so the loopback-only check lets it in."""
+    import socket
+    import threading
+    import urllib.request
+
+    import uvicorn
+
+    from xbloom_hub.__main__ import server_options
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    machine = Machine(SimRadio(), SimListener)
+    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["127.0.0.1"])
+    options = {**server_options({"XBLOOM_PORT": str(port)}), "log_level": "warning"}
+    server = uvicorn.Server(uvicorn.Config(app, **options))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, "uvicorn did not start (the port may have been taken)"
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/api/state",
+                                         headers={"X-Forwarded-For": "10.1.2.3"})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == 200
+    finally:
+        server.should_exit = True
+        thread.join(5)

@@ -1,0 +1,49 @@
+# The hub on a home server (docs/PLAN.md, S4; how to run it: docs/DEPLOY.md).
+# Nothing here names an address: every value that depends on the home comes
+# from the server's .env, and a missing one stops Compose (${NAME:?...})
+# rather than falling back to something open.
+name: xbloom-hub
+
+services:
+  hub:
+    build: .
+    image: xbloom-hub:local
+    ports:
+      # One address only. A plain ${...} would turn into an empty string when
+      # unset and publish on every interface (S4-1).
+      - "${XBLOOM_PUBLISH_IP:?set XBLOOM_PUBLISH_IP in .env}:8377:8377"
+    # Listed one by one, no env_file: a secret put in .env by mistake never
+    # reaches the container's configuration (S4-14).
+    environment:
+      XBLOOM_PROXY_HOST: ${XBLOOM_PROXY_HOST:?set XBLOOM_PROXY_HOST in .env}
+      XBLOOM_ALLOWED_HOSTS: ${XBLOOM_ALLOWED_HOSTS:?set XBLOOM_ALLOWED_HOSTS in .env}
+      XBLOOM_ALLOWED_NETWORKS: ${XBLOOM_ALLOWED_NETWORKS:?set XBLOOM_ALLOWED_NETWORKS in .env}
+    # Files, never environment variables, so neither shows in the container's
+    # configuration (security P2-1). Compose ignores mode and owner on file
+    # secrets; the files on the server are uid 10001, mode 400 (S4-13).
+    secrets:
+      - hub_token
+      - proxy_psk
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # The healthcheck is the image's (Dockerfile): loopback, so .env keeps
+    # 127.0.0.0/8 and 127.0.0.1 in the allowed lists.
+
+secrets:
+  hub_token:
+    file: ./secrets/hub_token
+  proxy_psk:
+    file: ./secrets/proxy_psk

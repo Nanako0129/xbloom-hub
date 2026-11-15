@@ -4,10 +4,18 @@ A self-hosted hub for the xBloom Studio pour-over coffee machine: one service
 that holds the machine's Bluetooth link and puts a dashboard, a console, an MCP
 endpoint for AI assistants, and Home Assistant on top of it.
 
-> **Status: planning.** Nothing here runs yet. The Bluetooth path described
-> below has not been tested against a machine.
+> **Status: in use with one machine** (firmware V12.0D.500) through an
+> Android phone as the Bluetooth proxy: recipes, loading, starting and
+> stopping, brew records, the dashboard and MCP. Home Assistant is not built
+> yet.
 
-## Planned shape
+## Running it
+
+- On a home server, in a container: [docs/DEPLOY.md](docs/DEPLOY.md).
+- The dashboard, pairing a phone, and a simulator for trying it without a
+  machine: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+## Shape
 
 ```
 Claude Code ── MCP ──┐                      ┌──► Dashboard / console (web)
