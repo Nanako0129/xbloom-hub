@@ -3,7 +3,6 @@
   // rebuilt by it. The ids are the current dashboard's, which the browser
   // tests drive on both pages.
   import { asking, answered } from "../lib/actions.svelte";
-  import { hub } from "../lib/hub.svelte";
   import { t } from "../lib/i18n.svelte";
   import RecipeFacts from "./RecipeFacts.svelte";
 
