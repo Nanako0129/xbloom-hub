@@ -977,6 +977,33 @@ test of a safety flow fails on the new page: the switch waits.
 
 ## S4 — the hub in a container on a home server
 
+Status 2026-11-16: cutover steps 0 to 6 done on the server.
+
+- **Step 0.** Two other containers mount the Docker socket. The owner chose
+  to upgrade first. The runc fix arrived with containerd.io 1.7.29
+  (runc 1.3.3); docker-ce stays 27.3.1, since 28 blocks routed access to
+  containers and 29 raises the minimum API version. All 25 containers stayed
+  up, none restarted.
+- **Smoke test.**
+  - The bridge keeps client addresses. The Mac's wired address showed, and a
+    container on the default bridge got 403 `network_not_allowed`.
+  - The container reported healthy, ran as uid 10001, and habluetooth's
+    setup returned.
+  - Without the sim override it exited at the proxy key, exit code 1.
+- **The hub on the server.**
+  - It holds the link: first gate code 8100, weight readings arriving.
+  - Port 8377 is bound only on the LAN address.
+  - Recipes (10) and brews (22) equal the Mac's.
+  - Neither secret appears in the image (a known string counts 2) or in
+    the container's configuration.
+- **Step 6.** The Mac launcher refuses, with and without the rollback flag
+  (while the server answers).
+- **Step 7.** The local-scope MCP entry connects once `NO_PROXY` holds the
+  server: Claude Code otherwise sends MCP through its `HTTPS_PROXY`.
+- **Open.**
+  - The `docker restart` check waits for the machine to report a state.
+  - The owner's step 8: pair and brew.
+
 Asked for by the owner on 2026-11-14 (「把 hub 包成 docker 放到 208 跑」):
 the hub moves off the development Mac onto an always-on home server on the
 LAN. Public files name it only "the home server"; its address lives in the

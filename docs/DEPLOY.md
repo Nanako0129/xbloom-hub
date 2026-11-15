@@ -26,6 +26,11 @@ example under a directory that holds your other Compose services).
 
 Never run `git clean -x` in `<dir>`: it would delete `secrets/` and `data/`.
 
+When `<dir>` sits under `/root`, your own account cannot `cd` into it, so
+the commands below name the Compose file instead:
+`sudo docker compose -f <dir>/compose.yaml ...` (Compose then reads `.env`
+from that directory).
+
 The container runs as uid 10001 with a read-only root, no capabilities and
 `no-new-privileges`. It needs no local Bluetooth: never add capabilities,
 never mount the host's D-Bus, never make it privileged. On start, a log line
@@ -83,7 +88,7 @@ If one of these turns something up, decide that first.
 4. Build. This does not touch the proxy:
 
    ```bash
-   cd <dir> && sudo docker compose build
+   sudo docker compose -f <dir>/compose.yaml build
    ```
 
 5. A smoke test on the simulator, on another port, that cannot reach the
@@ -132,7 +137,7 @@ If one of these turns something up, decide that first.
 7. Install the proxy key (step 3), then start:
 
    ```bash
-   cd <dir> && sudo docker compose up -d
+   sudo docker compose -f <dir>/compose.yaml up -d
    ```
 
    The state reaches idle or asleep; the log shows the gate's first code,
@@ -151,7 +156,7 @@ st=$(curl -s --max-time 3 http://<server>:8377/api/state \
 try: d=json.load(sys.stdin)
 except ValueError: print('down'); raise SystemExit
 print(d['state'] if d.get('brew') is None else 'brew')")
-case "$st" in idle|asleep|offline|down) ssh <user>@<server> 'cd <dir> && sudo -n docker compose up -d';;
+case "$st" in idle|asleep|offline|down) ssh <user>@<server> 'sudo -n docker compose -f <dir>/compose.yaml up -d';;
   *) echo "not now: $st";; esac
 ```
 
@@ -161,7 +166,7 @@ case "$st" in idle|asleep|offline|down) ssh <user>@<server> 'cd <dir> && sudo -n
 sudo git -C <dir> fetch
 sudo git -C <dir> checkout <commit>
 sudo git -C <dir> rev-parse HEAD
-cd <dir> && sudo docker compose build
+sudo docker compose -f <dir>/compose.yaml build
 ```
 
 Then `up -d` behind the state check above.
@@ -177,7 +182,10 @@ on the server, then start the hub where it ran before.
 The repository's `.mcp.json` points at a hub on the same machine. To use the
 server instead, add a local-scope entry of the same name, which Claude Code
 prefers over the project's; it is stored in Claude Code's own config, not in
-the repository:
+the repository. If your Claude Code settings set `HTTPS_PROXY` (a model
+relay, for example), add the server's address to `NO_PROXY` there too:
+Claude Code sends the MCP request through that proxy otherwise, and it never
+reaches the server (seen 2026-11-16):
 
 ```bash
 claude mcp add-json --scope local xbloom-hub \
@@ -221,10 +229,9 @@ must count more than 0, or a 0 means nothing (newer Docker saves images with
 compressed layers, which `tools/count-in-image.py` opens one by one):
 
 ```bash
-cd <dir>
 printf 'proxy_headers=False' > /tmp/known
-sudo docker image save xbloom-hub:local | python3 tools/count-in-image.py /tmp/known
-sudo docker image save xbloom-hub:local | sudo python3 tools/count-in-image.py secrets/hub_token
-sudo docker image save xbloom-hub:local | sudo python3 tools/count-in-image.py secrets/proxy_psk
-sudo docker inspect xbloom-hub-hub-1 | sudo grep -c -F -f secrets/proxy_psk
+sudo docker image save xbloom-hub:local | sudo python3 <dir>/tools/count-in-image.py /tmp/known
+sudo docker image save xbloom-hub:local | sudo python3 <dir>/tools/count-in-image.py <dir>/secrets/hub_token
+sudo docker image save xbloom-hub:local | sudo python3 <dir>/tools/count-in-image.py <dir>/secrets/proxy_psk
+sudo docker inspect xbloom-hub-hub-1 | sudo grep -c -F -f <dir>/secrets/proxy_psk
 ```
