@@ -34,6 +34,13 @@ WATER_UNITS_PER_ML = 1000
 # Values known to be something other than a brew: home, asleep, recipe ready,
 # finished, and 29 (after the handshake), 4 and 5 (tare).
 _NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
+# What the machine may report on its scale page (docs/PLAN.md, S3e): home and
+# the two values xbloom-py calls "scale settle", until the values on that page
+# are measured. The hub's scale flag survives only these. 4 and 5 also follow
+# the machine's own tare key on any screen, so they never join _HOME: as home
+# they would close a running brew's record and take its Stop away.
+SCALE_PAGE = frozenset({1, 65, 4, 5})
+TARE_SETTLE = frozenset({4, 5})   # reported after a zero, on any screen (ble.py:735)
 # The machine sets its scale back to zero about 5 s into a brew, with water
 # already in the cup (docs/S3-RESULTS.md: 5.6 g, 4.95 g and 5.7 g were lost
 # that way). A reading that falls by more than REZERO_DROP_G to within
@@ -123,6 +130,9 @@ class Machine:
         self._preload_weight: float | None = None
         self._ticket: dict | None = None
         self._error: str | None = None
+        # This hub put the machine on its scale page with a confirmed 8003, and
+        # nothing since says it left. Set only in scale_enter().
+        self._on_scale = False
 
     # ---- state ---------------------------------------------------------- #
     @property
@@ -134,7 +144,16 @@ class Machine:
         if self._brew is not None:
             # Whatever the activity value, including 31 during a pause.
             return "brewing"
+        # A fact the hub set, not an activity value alone: 4 and 5 also follow
+        # a press of the machine's own tare key on any screen.
+        if self._on_scale and self._activity in SCALE_PAGE:
+            return "scale"
         if self._activity in _HOME:
+            return "idle"
+        # The settle after a zero (4, then 5) off the scale page, with no load
+        # held: still idle to the page. Only here, never in _HOME, which would
+        # let a tare key close a brew's record.
+        if self._activity in TARE_SETTLE and self._held is None and self._started_at is None:
             return "idle"
         if self._activity == _ASLEEP:
             return "asleep"
@@ -214,6 +233,8 @@ class Machine:
         if "activity" in decoded:
             was_armed = self.state == "armed"
             self._activity = decoded["activity"]
+            if self._activity not in SCALE_PAGE:
+                self._on_scale = False      # brewer, grinder, asleep, anything new
             if self._activity != previous:
                 self._finished = False      # the machine has moved on, wherever to
             if was_armed and self.state != "armed":
@@ -352,6 +373,7 @@ class Machine:
         log.info("brew %s resumed after a gap", brew["id"])
 
     def _open_brew(self, opened_by: str) -> None:
+        self._on_scale = False
         resumed = self._take_suspended()
         if resumed is not None:
             self._resume_brew(resumed)
@@ -582,6 +604,7 @@ class Machine:
             finally:
                 self._held = None
                 self._started_at = None
+                self._on_scale = False
                 self._activity = None
                 self._finished = False
                 self._weight = None
@@ -748,4 +771,69 @@ class Machine:
             if not await self._listener.send_confirmed("quit_recipe", packet_quit_recipe()):
                 raise CancelFailed("the machine did not answer the quit command")
             await self._wait_for(lambda: self.state != "armed", 5)
+            return self.snapshot()
+
+    # ---- the scale (docs/PLAN.md, S3e) ------------------------------------ #
+    # None of these grinds, pours or heats. Each checks its state under the
+    # lock load() and start() hold, never _stop_lock: a scale command must not
+    # delay a Stop. The hub sends none of them while armed or brewing.
+    async def _scale_send(self, name: str, frame: bytes) -> None:
+        from xbloom.ble import CommandRefused, CommandUnanswered
+
+        try:
+            answered = await self._listener.send_confirmed(name, frame)
+        except (CommandRefused, gate.GateRefused):
+            raise
+        except Exception as err:  # noqa: BLE001  a link error, not a reply
+            raise NotReady(f"the link failed during {name}: {type(err).__name__}") from err
+        if not answered:
+            raise CommandUnanswered(name)
+
+    def _scale_free(self, what: str) -> None:
+        """A load held or a start just sent: the machine may be on its recipe
+        screen whatever the hub reads, and 8014 there reaches the firmware's
+        shared quit handler."""
+        if self._held is not None or self._started_at is not None:
+            raise NotReady(f"cannot {what} with a recipe loaded or a start just sent")
+
+    async def scale_enter(self) -> dict:
+        """Put the machine on its scale page (8003). Only from idle."""
+        from xbloom.ble import packet_scale_enter
+
+        async with self._lock:
+            if self.state != "idle":
+                raise NotReady(f"cannot go to the scale while {self.state}")
+            self._scale_free("go to the scale")
+            listener = self._listener
+            await self._scale_send("scale_enter", packet_scale_enter())
+            if self._listener is not listener:
+                # The session that sent it is gone: nothing to set a flag for.
+                raise NotReady("the link dropped while going to the scale")
+            self._on_scale = True
+            self._publish()
+            return self.snapshot()
+
+    async def tare(self) -> dict:
+        """Zero the scale (8500). Idle or on the scale page; never asleep (a
+        zero would wake the machine to no use), armed or brewing."""
+        from xbloom.ble import packet_tare
+
+        async with self._lock:
+            if self.state not in ("idle", "scale"):
+                raise NotReady(f"cannot zero the scale while {self.state}")
+            self._scale_free("zero the scale")
+            await self._scale_send("tare", packet_tare())
+            return self.snapshot()
+
+    async def scale_quit(self) -> dict:
+        """Leave the scale page for home (8014). Only on the scale page."""
+        from xbloom.ble import packet_quit_scale
+
+        async with self._lock:
+            if self.state != "scale":
+                raise NotReady(f"not on the scale page while {self.state}")
+            self._scale_free("leave the scale")
+            await self._scale_send("scale_quit", packet_quit_scale())
+            self._on_scale = False
+            self._publish()
             return self.snapshot()

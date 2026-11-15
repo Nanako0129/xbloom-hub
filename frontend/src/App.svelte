@@ -13,6 +13,7 @@
   import Recipe from "./pages/Recipe.svelte";
   import RecipeEdit from "./pages/RecipeEdit.svelte";
   import Home from "./pages/Home.svelte";
+  import Scale from "./pages/Scale.svelte";
   import Community from "./pages/Community.svelte";
   import CommunityRecipe from "./pages/CommunityRecipe.svelte";
   import Confirm from "./components/Confirm.svelte";
@@ -24,6 +25,7 @@
     { name: "home", href: "#/", icon: "drop", label: "tab.home" },
     { name: "recipes", href: "#/recipes", icon: "list", label: "tab.recipes" },
     { name: "history", href: "#/history", icon: "curve", label: "tab.history" },
+    { name: "scale", href: "#/scale", icon: "scale", label: "tab.scale" },
     { name: "console", href: "#/console", icon: "prompt", label: "tab.console" },
   ];
   const ENTER_MS = 700;       // how long a page's arrival may animate
@@ -81,6 +83,8 @@
       <Home />
     {:else if route.current.name === "console"}
       <Console />
+    {:else if route.current.name === "scale"}
+      <Scale />
     {:else if route.current.name === "history" && route.current.id}
       {#key route.current.id}<Brew id={route.current.id} />{/key}
     {:else if route.current.name === "history"}

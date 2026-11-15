@@ -176,7 +176,8 @@
   {/if}
 
 {:else}
-  <h1>{name === "asleep" ? t("home.asleep") : t("home.ready")}</h1>
+  <h1>{name === "asleep" ? t("home.asleep") : name === "scale" ? t("home.on_scale") : t("home.ready")}</h1>
+  {#if name === "scale"}<p><a href="#/scale">{t("home.to_scale")}</a></p>{/if}
   <div class="home">
     <div class="home-now">
       <section class="card scale">

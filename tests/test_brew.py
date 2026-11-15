@@ -469,14 +469,14 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
         used |= set(re.findall(r'\bt\("([a-z_.]+)"', text))
     assert len(used) > 80 and used <= keys, used - keys
     # Keys built at run time: every value the hub can send has an entry.
-    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released", "unheard")),
+    for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released", "unheard", "scale")),
                            ("ending", ("finished", "stopped", "abandoned", "home", "asleep", "link_lost")),
                            ("error", ("unauthorized", "not_ready", "bad_ticket", "recipe_is_loaded",
                                       "recipe_invalid", "recipe_exists", "machine_refused", "machine_unanswered",
                                       "cancel_failed", "not_found", "foreign_origin")),
                            ("meta", ("bean", "roaster", "process", "roast", "source", "notes")),
                            ("cup_type", ("1", "2", "3", "4")), ("pattern", ("1", "2", "3")),
-                           ("tab", ("home", "recipes", "history", "console", "label")),
+                           ("tab", ("home", "recipes", "history", "scale", "console", "label")),
                            ("reason", REASONS)):
         for value in values:
             assert f"{prefix}.{value}" in keys, f"{prefix}.{value}"

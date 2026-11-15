@@ -34,7 +34,7 @@ def test_a_token_link_opened_in_a_showing_tab_is_taken_too(next_ui, hub):
 
 
 def test_the_shell_follows_the_machine(next_ui, hub):
-    expect(next_ui.locator("#tabs a")).to_have_count(4)
+    expect(next_ui.locator("#tabs a")).to_have_count(5)          # Now, Recipes, History, Scale, Console
     expect(next_ui.locator("#machine .state")).to_contain_text("Ready")
     assert next_ui.evaluate("document.body.dataset.state") == "idle"
     assert hub.api("POST", "/api/machine/load", {"slug": "short"}).status_code == 200

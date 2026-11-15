@@ -25,7 +25,10 @@ LOAD = frozenset({8100, 8102, 8104, 8001, 8004})
 CANCEL = frozenset({8017})
 # stop a running brew
 STOP = frozenset({40519})
-ALLOWED = LOAD | CANCEL | STOP
+# the scale page (S3e): go to it, zero, leave it. None grinds, pours or heats;
+# the hub sends them only from Machine.scale_enter(), tare() and scale_quit().
+SCALE = frozenset({8003, 8500, 8014})
+ALLOWED = LOAD | CANCEL | STOP | SCALE
 # Start passes only while Machine.start() holds a permit for its one send
 # (safety invariant 3). Resume (40524), pause, grinder and slot codes are
 # deliberately in no list.

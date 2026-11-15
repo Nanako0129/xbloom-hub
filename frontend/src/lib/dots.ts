@@ -18,6 +18,8 @@ export const DOT_ICONS: Record<string, string> = {
   grip: "101 000 101 000 101",
   // Water falling: three columns of drops; each row lights in turn.
   pour: "01010 10101 01010 10101 01010 10101 01010",
+  // A weight on the pan of a scale.
+  scale: "0011100 0011100 0000000 1111111 0001000 0001000 0111110",
 };
 
 export const GLYPHS: Record<string, string> = {
