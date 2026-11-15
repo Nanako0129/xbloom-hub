@@ -688,6 +688,7 @@ def test_the_scale_reset_during_a_brew_is_carried_over(tmp_path):
         machine._listener._brewing.cancel()
         raw = machine._listener._on_raw
         raw({"cmd": 40510, "pour_index": 0})
+        raw({"cmd": 40523, "water_ml": 800.0})               # water first: then the cup is weighed
         for grams in (0.0, 4.53, 5.61, 0.0, 1.54, 16.9):
             raw({"cmd": 20501, "weight_g": grams})
         assert machine.snapshot()["weight_g"] == 22.51
@@ -732,6 +733,7 @@ def test_a_running_brew_is_served_as_it_is_now(tmp_path):
         await machine.start(await armed(machine))
         assert await machine._wait_for(lambda: machine.state == "brewing", 2)
         brew_id = machine._brew["id"]
+        machine._listener._on_raw({"cmd": 40523, "water_ml": 5000.0})
         machine._listener._on_raw({"cmd": 20501, "weight_g": 3.3})
         record = machine.open_record(brew_id)
         assert record["samples"]["weight"][-1][1] == 3.3
@@ -960,21 +962,26 @@ def test_a_silent_link_is_dropped_and_the_hub_connects_again(tmp_path, monkeypat
 
 
 
-def test_the_scale_reading_when_a_brew_opens_is_its_zero(tmp_path):
-    # 2026-11-15: the page showed -3 g of coffee as the brew began.
+def test_coffee_weighs_nothing_until_water_and_counts_from_there(tmp_path):
+    # 2026-11-15, grinder on: -3.24 g while grinding, the machine zeroing its
+    # scale itself as the first pour began; the page had shown -3 g of coffee.
     async def run():
         machine, brews, task = await ready(tmp_path)
         machine._listener._ticker.cancel()                    # only the readings below
         raw = machine._listener._on_raw
-        raw({"cmd": 20501, "weight_g": -3.0})                 # idle, the scale off zero
+        raw({"cmd": 8023, "activity": 34})                    # grinding: the brew opens
+        raw({"cmd": 20501, "weight_g": -3.24})
+        assert machine.snapshot()["weight_g"] == 0.0          # no coffee yet
         raw({"cmd": 8023, "activity": 35})
-        raw({"cmd": 20501, "weight_g": -3.0})
+        raw({"cmd": 20501, "weight_g": 0.0})                  # the machine zeroes as pouring begins
+        raw({"cmd": 40523, "water_ml": 800.0})                # 0.8 ml: water seen
+        raw({"cmd": 20501, "weight_g": 0.0})
         assert machine.snapshot()["weight_g"] == 0.0
-        raw({"cmd": 20501, "weight_g": 7.0})                  # 10 g in the cup
+        raw({"cmd": 20501, "weight_g": 10.0})
         assert machine.snapshot()["weight_g"] == 10.0
-        raw({"cmd": 20501, "weight_g": 0.0})                  # the machine zeroes its scale
+        raw({"cmd": 20501, "weight_g": 0.0})                  # a later re-zero is carried
         raw({"cmd": 20501, "weight_g": 0.5})
-        assert machine.snapshot()["weight_g"] == 10.5         # carried, from the brew's zero
+        assert machine.snapshot()["weight_g"] == 10.5
         task.cancel()
 
     asyncio.run(run())

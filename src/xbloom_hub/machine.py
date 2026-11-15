@@ -44,10 +44,12 @@ _NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
 # this machine.
 REZERO_DROP_G = 2.0
 REZERO_BAND_G = (-0.5, 1.5)
-# The scale can stand off zero when a brew opens (-3 g seen 2026-11-15, the
-# cup or dripper moved after the load's tare). That reading is the brew's
-# zero; one further off than this is not trusted as a zero and left alone.
-ZERO_AT_OPEN_MAX_G = 20.0
+# Before the first water there is no coffee in the cup, whatever the scale
+# reads: 2026-11-15, with the grinder on, the scale read -3.24 g while grinding
+# and the machine zeroed it itself the moment the first pour began. A brew's
+# coffee weight is therefore 0 until water is seen (WATER_SEEN_ML), and its
+# zero is the scale's reading at that point; a re-zero after that is carried.
+WATER_SEEN_ML = 0.5
 # After the hub sends a start, any other activity value counts as a brew for
 # this long: a start the hub sent must not brew with no record and no Stop
 # because the guess above was wrong.
@@ -198,6 +200,9 @@ class Machine:
             decoded = {**decoded, "water_ml": round(decoded["water_ml"] / WATER_UNITS_PER_ML, 1)}
         elif "water_ml" in decoded:
             decoded = {k: v for k, v in decoded.items() if k != "water_ml"}
+        if (self._brew is not None and isinstance(decoded.get("water_ml"), (int, float))
+                and decoded["water_ml"] > WATER_SEEN_ML):
+            self._brew["_poured"] = True
         if "weight_g" in decoded and self._brew is not None:
             decoded = {**decoded, "weight_g": self._carried(decoded["weight_g"])}
         if "weight_g" in decoded:
@@ -372,8 +377,7 @@ class Machine:
             "samples": {"weight": [], "water": []}, "events": [],
             # [seconds, grams carried over] for each scale reset seen.
             "rezeroed": [], "_raw_weight": None, "_pending": None, "_carry": 0.0,
-            "_base": (self._weight if isinstance(self._weight, (int, float))
-                      and abs(self._weight) <= ZERO_AT_OPEN_MAX_G else 0.0),
+            "_base": 0.0, "_poured": False,
             "_t0": time.monotonic(),
         }
         # The last water reading belongs to whatever came before this brew.
@@ -386,6 +390,9 @@ class Machine:
         """The weight in the cup since the brew opened, across the machine's
         own reset of its scale."""
         brew = self._brew
+        if not brew["_poured"]:
+            brew["_base"] = brew["_raw_weight"] = raw      # the zero follows the scale until water
+            return 0.0
         last, pending = brew["_raw_weight"], brew["_pending"]
         brew["_raw_weight"] = raw
         if pending is not None:
