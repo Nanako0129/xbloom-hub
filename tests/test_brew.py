@@ -957,3 +957,24 @@ def test_a_silent_link_is_dropped_and_the_hub_connects_again(tmp_path, monkeypat
         task.cancel()
 
     asyncio.run(run())
+
+
+
+def test_the_scale_reading_when_a_brew_opens_is_its_zero(tmp_path):
+    # 2026-11-15: the page showed -3 g of coffee as the brew began.
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        machine._listener._ticker.cancel()                    # only the readings below
+        raw = machine._listener._on_raw
+        raw({"cmd": 20501, "weight_g": -3.0})                 # idle, the scale off zero
+        raw({"cmd": 8023, "activity": 35})
+        raw({"cmd": 20501, "weight_g": -3.0})
+        assert machine.snapshot()["weight_g"] == 0.0
+        raw({"cmd": 20501, "weight_g": 7.0})                  # 10 g in the cup
+        assert machine.snapshot()["weight_g"] == 10.0
+        raw({"cmd": 20501, "weight_g": 0.0})                  # the machine zeroes its scale
+        raw({"cmd": 20501, "weight_g": 0.5})
+        assert machine.snapshot()["weight_g"] == 10.5         # carried, from the brew's zero
+        task.cancel()
+
+    asyncio.run(run())

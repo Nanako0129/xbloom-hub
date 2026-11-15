@@ -44,6 +44,10 @@ _NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
 # this machine.
 REZERO_DROP_G = 2.0
 REZERO_BAND_G = (-0.5, 1.5)
+# The scale can stand off zero when a brew opens (-3 g seen 2026-11-15, the
+# cup or dripper moved after the load's tare). That reading is the brew's
+# zero; one further off than this is not trusted as a zero and left alone.
+ZERO_AT_OPEN_MAX_G = 20.0
 # After the hub sends a start, any other activity value counts as a brew for
 # this long: a start the hub sent must not brew with no record and no Stop
 # because the guess above was wrong.
@@ -368,6 +372,8 @@ class Machine:
             "samples": {"weight": [], "water": []}, "events": [],
             # [seconds, grams carried over] for each scale reset seen.
             "rezeroed": [], "_raw_weight": None, "_pending": None, "_carry": 0.0,
+            "_base": (self._weight if isinstance(self._weight, (int, float))
+                      and abs(self._weight) <= ZERO_AT_OPEN_MAX_G else 0.0),
             "_t0": time.monotonic(),
         }
         # The last water reading belongs to whatever came before this brew.
@@ -391,8 +397,8 @@ class Machine:
         elif (last is not None and last - raw > REZERO_DROP_G
                 and REZERO_BAND_G[0] <= raw <= REZERO_BAND_G[1]):
             brew["_pending"] = last
-            return round(last + brew["_carry"], 2)      # held for this one reading
-        return round(raw + brew["_carry"], 2)
+            return round(last + brew["_carry"] - brew["_base"], 2)      # held for this one reading
+        return round(raw + brew["_carry"] - brew["_base"], 2)
 
     def _record(self, decoded: dict) -> None:
         brew = self._brew
