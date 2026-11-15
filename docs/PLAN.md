@@ -51,7 +51,9 @@ These come from the security review below; the IDs point at its findings.
    decodes the frame's command code (`ble.frame_command_code`, `ble.py:776`)
    and permits only the codes its caller's path needs:
    - load: 8100, 8102, 8104, 8001, 8004
-   - safe controls: 40518 (pause), 40519 (stop), 8017, 8012–8014, 8022
+   - safe controls: 40519 (stop), 8017 (cancel a load)
+   - scale (S3e): 8003 (to the scale page), 8500 (zero), 8014 (leave it),
+     sent only by `Machine.scale_enter()`, `tare()` and `scale_quit()`
    - start 8002 and resume 40524: only behind the start gate (invariant 3)
 
    Anything else, and any frame it cannot decode, is refused with
@@ -994,18 +996,37 @@ brew.
 
 **Scope.**
 
-- `gate.py`: a set `SCALE = {8003, 8500, 8014}` added to `ALLOWED`. These
-  codes are sent only through three `Machine` methods.
+- `gate.py`: a set `SCALE = {8003, 8500, 8014}` added to `ALLOWED`. Like
+  CANCEL and STOP, the gate passes them from any path; the hub's own code
+  sends them only from three `Machine` methods, whose state preconditions
+  are what the tests check. 8002 stays behind its permit.
 - `Machine.scale_enter()` (8003): only when the state is idle or asleep
   (never armed, brewing, finished or busy: it would leave a loaded recipe or
   interrupt the machine's own screens). `Machine.tare()` (8500): only when
-  idle, asleep or on the scale page; never armed or brewing (a brew has its
-  own zero handling). `Machine.scale_quit()` (8014): only on the scale page.
-  Each under the lock `load()` and `start()` hold, each answering NotReady
-  otherwise, each sent with `send_confirmed` like the others.
-- A hub state `scale` for the machine's scale page: the activity values
-  seen there once measured (4 and 5 per the library until then). Not a
-  brew: `_NOT_A_BREW` already holds 4 and 5.
+  idle or on the scale page; never armed, brewing or asleep (a zero on a
+  sleeping machine wakes it to no use). `Machine.scale_quit()` (8014): only on the scale page.
+  Each checks its precondition after taking the lock `load()` and `start()`
+  hold (never `_stop_lock`: a scale command must not delay Stop), answers
+  NotReady otherwise, and is sent with `send_confirmed` like the others.
+  `tare()` and `scale_quit()` also refuse while a load is held or a start
+  was just sent (`_held`, `_started_at`).
+- A hub state `scale`, resting on a fact the hub sets, not on an activity
+  value (4 and 5 also follow a press of the machine's own tare key on any
+  screen, `ble.py:735`): `state == "scale"` exactly when a flag `_on_scale`
+  is set, no brew is open and the current activity is in a known set
+  `SCALE_PAGE` ({1, 65, 4, 5} until the values on the scale page are
+  measured; then those). `scale_enter()` sets the flag only when its 8003
+  is confirmed (not on no answer, not on a refusal) and only if the session
+  that sent it is still the current one (`self._listener is listener`, as
+  `load()` does); it returns then, without waiting for an activity value.
+  The flag survives only activity values in `SCALE_PAGE`: any other value
+  (3 brewer, 10 asleep, 16, 30, 31, 34, 35, 36, a grinder screen, anything
+  new) clears it, and so do a confirmed 8014, a brew opening, a link drop
+  and `release()`. 4 and 5 never join `_HOME`: a tare key pressed during a
+  brew reports them, and as home they would close the brew's record and
+  take Stop away. Until measured, a person leaving the scale page for home
+  at the machine (1) leaves the hub reading `scale`; Leave then sends 8014
+  from home, whose effect there the attended step measures first.
 - REST: `POST /api/scale/enter`, `/api/scale/tare`, `/api/scale/quit`,
   behind the token like every write. No MCP tool (not asked for).
 - The simulator answers 8003 with activity 4, 8014 with 1, 8500 by setting
@@ -1018,21 +1039,50 @@ brew.
 weighing during a brew.
 
 **What must stay true.** The start gate is unchanged: 8002 still passes only
-through `Machine.start()`'s permit. None of the three codes is sent while
-armed or brewing. The gate log shows every one.
+through `Machine.start()`'s permit. The hub sends none of the three codes
+while armed or brewing. The gate log shows every one.
 
-**Acceptance.** Tests: the gate passes 8003, 8500, 8014 only through the
-three methods' sends and refuses codes outside `ALLOWED`; each method refuses
-in the states above; the simulator flow enter → tare → quit gives scale →
-weight 0 → idle; REST needs the token. Browser (Chromium and WebKit): the
+**Acceptance.** Tests: `gate.ALLOWED` equals exactly the five load codes,
+8017, 40519, 8003, 8500 and 8014; `gate.check()` passes the scale three and
+refuses 8002 with no permit, 8005, 8006, 8007, 8012, 8016, 8021, 8022, 4508,
+4510, 3505, 8010, 11511, 40524 and an undecodable frame; each method
+refuses (NotReady) in the states above and sends nothing then; activity 4
+then 5 arriving at home with no hub 8003: the state is not `scale` and
+`scale_quit()` refuses with no 8014 in the gate log; a brew open, then 4
+and 5: the record stays open; the flag set, then activity 3 or 30: not
+`scale`, and Leave refuses; the flag clears on 31, 35, 10, a link drop
+and a release; a link dropped inside `scale_enter()`'s send leaves no
+flag; the simulator flow enter → tare → quit gives scale → weight 0 →
+idle; each route answers 401 without the token and 405 to GET, sending
+nothing. Browser (Chromium and WebKit): the
 Scale tab shows the weight; Use the scale, Zero and Leave work against the
 simulator and are disabled while a recipe is loaded. On the machine (owner
 present): enter, weigh something, zero, weigh again, leave; the activity
-values on the scale page are recorded and the state mapping set from them.
+values on the scale page, after Zero at home and on leaving at the machine
+are recorded, and `SCALE_PAGE` set from them. No scale code is sent while a
+recipe is loaded: through the firmware's shared quit handler (8012–8014,
+8017) it is the one combination not to explore.
+
+**Security dispositions for this slice** (review of 2026-11-15, no P0 or P1):
+
+| # | Finding | Disposition |
+|---|---|---|
+| P2-1 | The flag cleared by a deny-list: a stale `scale` over the brewer or grinder screen or a knob start, with Leave sending 8014 to the shared quit handler | FIX: the flag survives only `SCALE_PAGE` values; `state == "scale"` also needs the activity in it; `tare()` and `scale_quit()` refuse with a load held or a start just sent |
+| P2-2 | The acceptance line "4, 5 at home leaves idle" would push 4 and 5 into `_HOME`, closing a brew on a tare key | FIX: reworded; 4 and 5 never join `_HOME`; a test keeps a brew open across 4, 5 |
+| P3-1 | The flag set after its session is gone | FIX: set only on a confirmed answer and for the current listener |
+| P3-2 | A route declared without POST would answer GET with no token | FIX: tests assert 405 to GET |
+| P3-3 | Invariant 1 listed codes the gate does not allow | FIX: it lists what gate.py allows |
+| P3-4 | The gate test accepts any addition to `ALLOWED` | FIX: exact set, more explicit refusals |
+| P4 | A zero wakes a sleeping machine; Zero at home may itself give 4, 5; a stale `scale` blocks `load()`; races with the machine's own changes as `cancel()` has | Zero not from asleep; the attended step records the values; the MCP `machine_state` text names `scale`; ACCEPT the remaining race as for cancel |
+
+The library's notes on these codes come from the official app and firmware
+references, not a measurement on this machine; the stops below cover that.
 
 **Stops.** 8003, 8500 or 8014 does anything but route, zero or leave on the
-machine: stop and record it. The scale page reports an activity that the hub
-would read as a brew: stop before shipping the state.
+machine: stop and record it. The scale page reports 34 or 35 (what the hub
+reads as a brew): stop before shipping. 8014 sent from home does anything
+but nothing: Leave is then limited to a scale page the hub can see, and the
+flag rule is revised before shipping.
 
 ## S3d — pairing a device by QR code
 
