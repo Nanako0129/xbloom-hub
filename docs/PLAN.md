@@ -975,6 +975,243 @@ pull request of step 6 is reverted.
 here: stop and ask. An npm command is about to run on the host: stop. The CSP would have to change: stop and ask. A browser
 test of a safety flow fails on the new page: the switch waits.
 
+## S4 — the hub in a container on a home server
+
+Asked for by the owner on 2026-11-14 (「把 hub 包成 docker 放到 208 跑」):
+the hub moves off the development Mac onto an always-on home server on the
+LAN. Public files name it only "the home server"; its address lives in the
+server's own `.env` and in local, git-ignored files.
+
+**Facts this rests on** (read 2026-11-16 on the server, read-only): x86_64,
+Ubuntu 24.04, Docker 27.3, Compose v2.29; other services live one directory
+each under a root-owned container directory; port 8377 is free; the owner's
+login has passwordless `sudo`, root login is refused. `uv.lock` already
+resolves for `sys_platform == 'linux'`. The hub already reads its secrets
+from files (`XBLOOM_HUB_TOKEN_FILE`, `XBLOOM_PROXY_PSK_FILE`) and every other
+setting from the environment (`__main__.py`).
+
+**Outcome.** The hub runs as one container on the home server, restarts on
+its own after a reboot or a crash, holds the machine's link through the same
+phone proxy, keeps the recipes and brew records the Mac has now, and serves
+the page, REST, SSE and MCP to the LAN. The Mac stops running the real hub;
+it keeps the simulator for development.
+
+**Scope.**
+
+- `Dockerfile`, two stages, every base image pinned by digest:
+  - `web`: the node image `frontend/npm.sh` already pins (checked
+    2026-11-16: a multi-arch index with linux/amd64). It copies only
+    `frontend/`, runs `npm ci --ignore-scripts` with the network, then
+    `RUN --network=none npm run build` into `src/xbloom_hub/web`, as
+    `npm.sh` keeps the network off for everything but fetching.
+  - `app`: a slim Python 3.13 image and a pinned `uv` binary;
+    `UV_PYTHON_DOWNLOADS=never`; `uv sync --locked --no-dev`; it copies
+    only `pyproject.toml`, `uv.lock`, `README.md` and `src/`, plus the
+    built page from `web`; a passwd entry for uid 10001, which runs it;
+    `CMD` is the virtualenv's `xbloom-hub` (not `uv run`, which writes a
+    cache a read-only root cannot hold). Image defaults:
+    `XBLOOM_BIND=0.0.0.0`, `XBLOOM_DATA_DIR=/data`,
+    `XBLOOM_HUB_TOKEN_FILE=/run/secrets/hub_token`,
+    `XBLOOM_PROXY_PSK_FILE=/run/secrets/proxy_psk`.
+- `.dockerignore`: `.git`, `.venv`, `data`, `secrets`, `.env*`,
+  `frontend/node_modules`, `src/xbloom_hub/web`, `tests`. A second line
+  behind the explicit `COPY` paths: the secrets never enter a layer.
+- `compose.yaml` at the repository root, with no address in it:
+  - one service, built from `.`;
+  - the port published on `${XBLOOM_PUBLISH_IP:?set XBLOOM_PUBLISH_IP in
+    .env}:8377`, an address from the server's `.env`. The `:?` form makes
+    Compose stop when it is unset; a plain `${...}` would become an empty
+    string and publish on every interface;
+  - `XBLOOM_PROXY_HOST`, `XBLOOM_ALLOWED_HOSTS`, `XBLOOM_ALLOWED_NETWORKS`
+    from `.env`, none of them secret, each written `${NAME:?...}`, and
+    listed one by one under `environment` (no `env_file`), so a key put in
+    `.env` by mistake never reaches the container's configuration;
+  - Compose `secrets` from `./secrets/hub_token` and `./secrets/proxy_psk`
+    (security P2-1: never in `environment`, so never in `docker inspect`);
+  - `./data:/data`;
+  - `restart: unless-stopped`;
+  - `logging` with a size cap on the json-file driver;
+  - `read_only: true` with a tmpfs `/tmp`, `cap_drop: [ALL]`,
+    `no-new-privileges`;
+  - a healthcheck that reads `/api/state` from inside the container. On the
+    bridge: `http://127.0.0.1:8377/api/state` with Host `127.0.0.1`, so
+    `.env.example` (and the server's `.env`) keep `127.0.0.0/8` in
+    `XBLOOM_ALLOWED_NETWORKS` and `127.0.0.1` in `XBLOOM_ALLOWED_HOSTS`. On
+    host networking (below) the hub binds the LAN address, so the check
+    reads that address with it as the Host.
+- `.env.example` listing those names with placeholder values (already
+  allowed by `.gitignore`).
+- `__main__.py`: `uvicorn.run(..., proxy_headers=False)`, with a test that
+  a forged `X-Forwarded-For` from loopback leaves the client address as it
+  is (finding S4-6).
+- `docs/DEPLOY.md`: the server layout, first install, update, rollback and
+  where the client address comes from. Generic: "the home server". Every
+  `up -d`, `restart` and `down` in it, and in the saved scripts, reads
+  `/api/state` in the same command and goes on only on idle, asleep or
+  offline with no brew; building is `docker compose build`. Rollback stops
+  the server's hub with `down` (not `stop`, which a reboot would undo).
+- `README.md`: one paragraph pointing at `docs/DEPLOY.md`.
+
+**On the server** (not in the repository): a clone of the public repository
+in its own directory under the container directory, owned by root. Next to
+the tracked files and all git-ignored: `.env`, `secrets/hub_token` and
+`secrets/proxy_psk` (owner uid 10001, mode 400), `data/` (owner uid 10001).
+Updating is `git fetch`, a checkout of the exact reviewed commit, a check
+that `HEAD` is that commit, `docker compose build`, then `up -d` behind the
+state check above. A `git clean -x` in that clone would delete `secrets/`
+and `data/`; DEPLOY.md says never to run one there.
+
+**Secrets in transit.** The proxy key leaves the Mac keychain into a pipe:
+`security … -w` piped through `ssh` into `sudo -n install -m 400 -o 10001
+/dev/stdin <path>`. Never in argv, never printed, never in a file on the Mac.
+The hub token is copied the same way from `secrets/hub_token`, so the Mac's
+`tools/mcp-auth-headers.sh` and its other callers keep working unchanged.
+The script runs with `pipefail` and without agent forwarding, and checks
+each file afterwards with `sudo -n test -s` (no output), so a failed read
+cannot leave an empty secret behind. Compose ignores `mode` and `uid` on
+file secrets (they are bind mounts), so the host-side `install` is the only
+control on them.
+
+**Client addresses.** The hub's network check (`XBLOOM_ALLOWED_NETWORKS`)
+and the pairing claim log see the peer address. Whether Docker's published
+port keeps the LAN client's address or shows the bridge gateway instead
+(S3d-9) is measured before the real cutover, from the phone and from the
+Mac. If the gateway shows, `network_mode: host` replaces the bridge (the
+port is then bound by the hub itself, with
+`XBLOOM_BIND: ${XBLOOM_PUBLISH_IP:?set XBLOOM_PUBLISH_IP in .env}` in
+`environment`, since the image's default is `0.0.0.0`), and DEPLOY.md says
+why. The allowed networks are never widened to
+the bridge range. Host networking would also open the server's
+loopback-only services to the container; DEPLOY.md records that, and the
+owner decides (the stop below).
+
+**Claude Code.** `.mcp.json` stays as it is (loopback, for a local hub). On
+the Mac a local-scope server of the same name, which takes precedence over
+the project's, points at the home server; it lives in Claude Code's own
+local config, not in the repository. DEPLOY.md shows the command with a
+placeholder address.
+
+**The first browser.** No token on the clipboard: from the Mac, a
+`POST /api/pair/start` to the server returns a pairing code, single-use and
+good for two minutes (S3d). The header line reaches curl on stdin, built
+inside the pipe from the token file, never in argv:
+`{ printf 'Authorization: Bearer '; tr -d '[:space:]' < secrets/hub_token;
+echo; } | curl -sS -H @- -X POST http://<server>:8377/api/pair/start`.
+(`tools/mcp-auth-headers.sh` prints JSON for Claude Code, which curl's
+`-H @-` cannot read.) Run once against the smoke container first, where it
+must answer 200 with a code. The owner opens
+`http://<server>:8377/#p=<code>` on the Mac, then pairs the phone by QR
+code from that page.
+
+**Cutover, in order.**
+
+0. Read-only checks on the server (finding S4-5): who is in the `docker`
+   group, which containers mount the Docker socket or run privileged,
+   whether the Docker API listens on TCP, whether a backup covers the
+   container directory, and that no host account uses uid 10001.
+0b. Only after step 0 found nothing to stop for: clone the repository at
+   the reviewed commit, write `.env`, create `data/` and `secrets/` (uid
+   10001), and install `secrets/hub_token` (the pipe above, then
+   `test -s`). Compose needs the clone and `.env` for every command,
+   build included.
+1. `docker compose build` on the server. Nothing touches the proxy.
+2. Smoke test, on another port: `XBLOOM_RADIO=sim`, no `proxy_psk`
+   mounted, `XBLOOM_PROXY_HOST` empty and the data directory a tmpfs, so a
+   lost override exits at the proxy check instead of reaching the proxy,
+   and no simulated record lands in the real data. Seen once: started
+   without the override, it exits. Then page, `/api/state`, a token call,
+   the health status, and the client-address measurement from the Mac and
+   the phone. Also, in the same hardened container,
+   `habluetooth.BluetoothManager().async_setup()` alone, which on Linux
+   tries the local Bluetooth socket: it must log and go on, not crash.
+   Then remove it.
+3. Stop the Mac hub, only when its `/api/state` reads idle, asleep or
+   offline with no brew, in the same command (the standing rule). From here
+   nothing writes the Mac's `data/`.
+4. Copy `data/` from the Mac to the server: `COPYFILE_DISABLE=1 tar` on the
+   Mac (no `._*` AppleDouble files, which the recipe store would list as
+   broken recipes), through ssh, `tar --no-same-owner` and chown 10001 on
+   the server. Afterwards `find data -name '._*'` there finds nothing. The
+   Mac copy stays as the backup.
+4b. Install `secrets/proxy_psk` from the Mac keychain (the pipe above,
+   then `test -s`). The Noise key reaches the server here and no earlier.
+5. `docker compose up -d` on the server. Observe the state reach idle or
+   asleep, the gate's first code 8100 in the log, and the brew list and the
+   recipe list from the server's API equal the files in the Mac's `data/`.
+6. The Mac's local launcher (`secrets/run-hub.sh`, git-ignored) refuses
+   the proxy radio unless `XBLOOM_ROLLBACK=1` is set, and refuses even then
+   while the server's hub answers `/api/state`: two hubs on one proxy keep
+   dropping each other's link (`drop_stale_links`), mid-brew too. A check
+   that only asks the server would fail open when the server is briefly
+   unreachable. Seen refusing, without touching the proxy, before anything
+   else uses the launcher. Not covered, and recorded: running
+   `.venv/bin/xbloom-hub` directly, or the local radio.
+7. Point Claude Code at the server (local scope) and check one MCP call.
+8. Owner: open `http://<server>:8377/#p=<code>` on the Mac with a code from
+   `/api/pair/start` (above), pair the phone by QR code from that page,
+   load and brew one cup.
+
+**Non-goals.** Home Assistant (S5). HTTPS on the LAN (P3, accepted). A
+registry or CI image build: the server builds from source. Rotating the
+token (DASHBOARD.md already says how).
+
+**Acceptance.** Seen, not tested:
+
+- the container healthy (its health status, read with a format that
+  prints only that field), after the smoke test and again after any switch
+  to host networking, and running again after `docker restart` and after a
+  reboot of the server (the reboot only if the owner agrees to one);
+- `docker compose config` without `XBLOOM_PUBLISH_IP` stopping with an
+  error, and 8377 bound only on the server's LAN address (`ss -ltn`), read
+  again after any switch to host networking;
+- the hub on the server holding the link, state idle or asleep;
+- the container's configuration holding neither secret: its environment
+  read as names only, and a count of each secret's occurrences in the
+  inspect output, computed on the server without printing it, equal to 0;
+- the same count over the saved image (`docker image save`, the pattern
+  read from the file with `grep -c -F -f`), equal to 0;
+- a request from outside the allowed networks refused, and a request from
+  the Mac and the phone answered, by their own addresses;
+- one MCP call from Claude Code on the Mac;
+- the owner brewing one cup from the page served by the server.
+
+**Rollback.** `docker compose down` on the server (behind the state
+check), records written there meanwhile copied back, then the Mac launcher
+with `XBLOOM_ROLLBACK=1`.
+
+**Budget and stops.** One pull request for the files above; the server
+steps are run from saved scripts, reviewed before they run (global rule 5),
+and watched. Stop and ask: a step would need root login, a firewall change,
+or a change to another service on the server; the published port would bind
+every interface; a secret would have to pass through argv, a log or the
+conversation; the bridge hides client addresses and host networking is not
+acceptable to the owner; the hub on the server cannot reach the proxy; a
+check in step 0 finds the Docker socket mounted into another container, a
+privileged container, the Docker API on TCP, or a backup of the container
+directory leaving the house; anything would need an added capability, the
+host's D-Bus or `privileged` (the hub needs no local Bluetooth).
+
+**Security dispositions for this slice** (read-only review, 2026-11-16; no
+P0 or P1):
+
+| ID | Finding | Disposition |
+|---|---|---|
+| S4-1 (P2) | An unset `${XBLOOM_PUBLISH_IP}` interpolates to empty and publishes on every interface; the host-mode fallback has the same gap through `XBLOOM_BIND` | FIX: `${NAME:?}` for it and every required name; host mode binds `${XBLOOM_PUBLISH_IP:?}`; acceptance reads the bind |
+| S4-2 (P2) | The two-hub guard covered only the Mac launcher, and only while the server answered | FIX: the launcher refuses the proxy radio without `XBLOOM_ROLLBACK=1`; rollback uses `down`; direct `.venv` runs recorded as not covered |
+| S4-3 (P2) | The smoke test could reach the real proxy or write simulator records into the real data | FIX: no `proxy_psk`, empty proxy host, tmpfs data; seen exiting without the override |
+| S4-4 (P2) | Updates and acceptance restarts skipped the standing state check; `up --build` is not "build only" | FIX: every `up`, `restart`, `down` behind the state check; step 1 is `compose build` |
+| S4-5 (P2) | The Noise key, which bypasses the write gate, and the token move onto a shared server | ACCEPT with evidence: step 0's read-only checks; a finding there stops for the owner |
+| S4-6 (P3) | uvicorn trusts `X-Forwarded-For` from loopback by default | FIX: `proxy_headers=False` and a test |
+| S4-7 (P3) | The build stage kept the network for `npm run build`; `ignore-scripts` hung on `.npmrc` placement | FIX: `--network=none` for the build, `--ignore-scripts` explicit, only `frontend/` copied |
+| S4-8 (P3) | A deny-list `.dockerignore` with secrets and data inside the context | FIX: explicit `COPY` paths; acceptance greps the saved image; `git clean -x` warned against |
+| S4-9 (P3) | The first browser's token through the Mac clipboard | FIX: a pairing code from `/api/pair/start` instead |
+| S4-10 (P3) | habluetooth on Linux tries the local Bluetooth socket and advises adding capabilities | FIX: stop on any capability, D-Bus or `privileged`; the setup runs alone in step 2 |
+| S4-11 (P3) | The healthcheck needs loopback allowed, and another target in host mode | FIX: named in scope for both modes; the check carries no token |
+| S4-12 (P3) | Host networking opens the server's loopback services | RECORD in DEPLOY.md; the owner decides if it comes to that |
+| S4-13 (P3) | An empty secret source writes an empty file quietly; Compose ignores secret `mode` | FIX: `pipefail`, `test -s`, host-side `install` only |
+| S4-14 (P4) | `--locked`, no Python downloads, venv `CMD`, explicit environment keys, log size, a passwd entry, exact commit checkout, macOS tar metadata (`COPYFILE_DISABLE=1`, `--no-same-owner`) | FIX, in scope above |
+| S4-15 (P4) | Plain HTTP now carries the token across the LAN for every Mac call (P3 above, widened); Docker 27.3 predates runc's November 2025 escape fixes | ACCEPT: recorded; the engine version is read in step 0 and reported to the owner, no upgrade in this slice |
+
 ## S3e — a scale of its own
 
 Done 2026-11-15 (PRs #44, #45 and the measurement after them). Measured on
