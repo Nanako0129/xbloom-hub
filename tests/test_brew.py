@@ -956,3 +956,20 @@ def test_a_stop_sent_before_the_drop_is_stopped_when_found_finished(tmp_path, mo
         task.cancel()
 
     asyncio.run(run())
+
+
+def test_a_silent_link_is_dropped_and_the_hub_connects_again(tmp_path, monkeypatch):
+    # The proxy can call a link connected after the machine has dropped it: no
+    # frame comes. The official app drops such a link after 2 s; the hub after SILENT_LINK_S.
+    monkeypatch.setattr(machine_module, "SILENT_LINK_S", 0.4)
+
+    async def run():
+        machine, brews, task = await ready(tmp_path)
+        old = machine._listener
+        old._ticker.cancel()                                  # the machine goes quiet
+        assert await machine._wait_for(
+            lambda: machine._listener is not None and machine._listener is not old, 5)
+        assert machine.state == "idle"
+        task.cancel()
+
+    asyncio.run(run())
