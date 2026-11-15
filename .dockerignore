@@ -1,0 +1,14 @@
+# A second line behind the Dockerfile's explicit COPY paths (docs/PLAN.md,
+# S4-8): none of this belongs in the build context.
+.git
+.venv
+.env
+.env.*
+data
+secrets
+tests
+frontend/node_modules
+src/xbloom_hub/web
+**/__pycache__
+**/.DS_Store
+**/._*

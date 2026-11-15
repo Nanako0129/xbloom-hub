@@ -39,7 +39,8 @@ environments = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+# Pinned: the image builds the project with it, network on (S4 review).
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]

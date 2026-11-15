@@ -2,7 +2,9 @@
 
 XBLOOM_HUB_TOKEN_FILE   file holding the bearer token (required)
 XBLOOM_PROXY_HOST       IP address of the ESPHome Bluetooth proxy
-XBLOOM_PROXY_PSK        the proxy's Noise key (or XBLOOM_PROXY_PSK_FILE)
+XBLOOM_PROXY_PSK        the proxy's Noise key (or XBLOOM_PROXY_PSK_FILE, which wins
+                        when set; the container image sets it, so there the key
+                        is a file only)
 XBLOOM_RADIO            proxy (default) | local | sim
 XBLOOM_DATA_DIR         recipes in <dir>/recipes, brew records in <dir>/brews
                         (default ./data)
@@ -30,7 +32,11 @@ from .recipes import RecipeStore
 
 def _proxy_psk(env) -> str:
     if path := env.get("XBLOOM_PROXY_PSK_FILE"):
-        return Path(path).read_text().strip()
+        try:
+            return Path(path).read_text().strip()
+        except OSError as err:
+            # Names the file, never its contents.
+            raise SystemExit(f"XBLOOM_PROXY_PSK_FILE: cannot read {path}: {err.strerror}") from None
     return env.get("XBLOOM_PROXY_PSK", "")
 
 
@@ -72,11 +78,21 @@ def main() -> None:
     store = RecipeStore(data / "recipes")
     networks = parse_networks(env.get("XBLOOM_ALLOWED_NETWORKS", LOOPBACK))
     app = create_app(machine, store, token, hosts, radio, brews, allowed_networks=networks)
-    uvicorn.run(app, host=env.get("XBLOOM_BIND", "127.0.0.1"),
-                port=int(env.get("XBLOOM_PORT", "8377")), log_level="info",
-                # An open event stream never ends by itself; without this a
-                # stop waits for every dashboard to close (seen in the S1 run).
-                timeout_graceful_shutdown=3)
+    uvicorn.run(app, **server_options(env))
+
+
+def server_options(env) -> dict:
+    return dict(
+        host=env.get("XBLOOM_BIND", "127.0.0.1"),
+        port=int(env.get("XBLOOM_PORT", "8377")), log_level="info",
+        # An open event stream never ends by itself; without this a stop
+        # waits for every dashboard to close (seen in the S1 run).
+        timeout_graceful_shutdown=3,
+        # uvicorn otherwise believes X-Forwarded-For from loopback, which
+        # would let a local process choose the address the network check and
+        # the pairing log see (docs/PLAN.md, S4-6).
+        proxy_headers=False,
+    )
 
 
 if __name__ == "__main__":
