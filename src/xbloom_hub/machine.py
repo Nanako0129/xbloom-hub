@@ -31,9 +31,14 @@ _FINISHED = 36
 # The machine reports water in thousandths of a millilitre (25 ml arrived as
 # 25000.0; the official app divides by 1000 as well).
 WATER_UNITS_PER_ML = 1000
+# The machine's "+ WATER" screen. Measured 2026-11-15: a start with the tank
+# low was refused (no_water), then 40522, then 12. 12 has also been seen on
+# waking, so the hub reads "no water" from 40522, never from 12 alone.
+_WATER_SCREEN = 12
+CMD_NO_WATER = 40522        # RD_ErrorLackOfWater (xbloom spec.FAULTS)
 # Values known to be something other than a brew: home, asleep, recipe ready,
-# finished, and 29 (after the handshake), 4 and 5 (tare).
-_NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, 29, 4, 5}
+# finished, the water screen, 29 (after the handshake), 4 and 5 (tare).
+_NOT_A_BREW = _HOME | {_ASLEEP, _RECIPE_READY, _FINISHED, _WATER_SCREEN, 29, 4, 5}
 # What the machine reports on its scale page (docs/PLAN.md, S3e), measured
 # 2026-11-15: 8003 → 4, then 5 a second later; a zero there → 4 → 5; 8014 →
 # 1 (home). Home is not among them, so leaving the page at the machine clears
@@ -126,6 +131,7 @@ class Machine:
         self._info: dict = {}
         self._activity: int | None = None
         self._finished = False          # a brew finished and the machine has not moved on
+        self._no_water = False          # 40522 seen, and the machine has not left that screen
         self._weight: float | None = None
         self._recipe: dict | None = None       # what this hub loaded, while armed
         self._preload_weight: float | None = None
@@ -145,6 +151,10 @@ class Machine:
         if self._brew is not None:
             # Whatever the activity value, including 31 during a pause.
             return "brewing"
+        # 40522 alone is a fault the machine may raise elsewhere; the state is
+        # the water screen it leads to.
+        if self._no_water and self._activity == _WATER_SCREEN:
+            return "no_water"
         # A fact the hub set, not an activity value alone: 4 and 5 also follow
         # a press of the machine's own tare key on any screen.
         if self._on_scale and self._activity in SCALE_PAGE:
@@ -238,10 +248,21 @@ class Machine:
                 self._on_scale = False      # brewer, grinder, asleep, anything new
             if self._activity != previous:
                 self._finished = False      # the machine has moved on, wherever to
+            if self._activity != previous and self._activity != _WATER_SCREEN:
+                # Refilled, or the screen was left. A change only: the 40522
+                # comes while the machine still reports the screen before 12.
+                self._no_water = False
             if was_armed and self.state != "armed":
                 # The machine left the recipe screen: the load is over and its
                 # start ticket is void (invariant 3). The recipe itself is
                 # held for a brew that may be starting.
+                self._clear_load()
+        if cmd == CMD_NO_WATER:
+            # Arrives before the machine changes to 12. The machine leaves the recipe screen for
+            # "+ WATER", so a load ends here, as above.
+            was_armed = self.state == "armed"
+            self._no_water = True
+            if was_armed:
                 self._clear_load()
         activity = self._activity
 
@@ -534,6 +555,7 @@ class Machine:
         self._no_session.clear()
         self._activity = None
         self._finished = False
+        self._no_water = False
         self._weight = None
         self._water = None
 
@@ -608,6 +630,7 @@ class Machine:
                 self._on_scale = False
                 self._activity = None
                 self._finished = False
+                self._no_water = False
                 self._weight = None
                 self._water = None
                 self._clear_load()
