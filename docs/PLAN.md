@@ -977,6 +977,15 @@ test of a safety flow fails on the new page: the switch waits.
 
 ## S3e — a scale of its own
 
+Done 2026-11-15 (PRs #44, #45 and the measurement after them). Measured on
+the machine with the owner: 8003 is confirmed and the machine reports 4,
+then 5 a second later; a zero there (8500) gives 4, then 5; 8014 is
+confirmed and the machine reports 1 (home). `SCALE_PAGE` is therefore
+{4, 5}: leaving the page at the machine (1) clears the hub's scale state.
+None of the three codes did anything but route, zero or leave. Also seen:
+activity 12 on waking, then 1; and 12 → 31 → 1 while the owner used the
+machine's own screens. The text below is the slice as reviewed.
+
 Asked for by the owner on 2026-11-15 (「單獨設計一個磅秤功能，獨立出來」):
 a scale that stands apart from brewing, to weigh beans or anything else on
 the machine's platform, with a zero.
