@@ -25,7 +25,10 @@ export const pourStarts = (record: BrewRecord): number[] =>
 // What happened during a brew, as marks on its chart: a pour starting (cmd
 // 40510) or ending (40511), the scale being re-zeroed. `label` is short, for the
 // chart; `title` says it in full, for the reading under it.
-export interface Mark { t: number; kind: "start" | "end" | "rezero"; label: string; title: string }
+export interface Mark { t: number; kind: "start" | "end" | "rezero" | "grind"; label: string; title: string }
+// Grinding as the machine reports it (2026-11-15): 40506 when the grinder
+// starts (with activity 34), 40507 when it stops, before the first pour.
+const GRIND_START = 40506, GRIND_END = 40507;
 
 // [pour index, time]: numbered by the machine's own pour index, so a missed
 // start does not renumber the ones after it.
@@ -47,9 +50,13 @@ export function eventMarks(record: BrewRecord): Mark[] {
       ends.push({ t: time, kind: "end", label: String(n), title: t("mark.end", { n }) });
     }
   }
+  const grind: Mark[] = record.events
+    .filter((e) => e[1].cmd === GRIND_START || e[1].cmd === GRIND_END)
+    .map(([time, event]) => ({ t: time, kind: "grind", label: event.cmd === GRIND_START ? "▶" : "■",
+                               title: t(event.cmd === GRIND_START ? "mark.grind_start" : "mark.grind_end") }));
   const zeroes: Mark[] = (record.rezeroed ?? []).map(([time, grams]) =>
     ({ t: time, kind: "rezero", label: "0", title: t("mark.rezero", { g: Math.round(grams) }) }));
-  return [...startMarks(starts), ...ends, ...zeroes].sort((a, b) => a.t - b.t);
+  return [...grind, ...startMarks(starts), ...ends, ...zeroes].sort((a, b) => a.t - b.t);
 }
 
 // The pour starts by pour index (the machine's own number), for a brew that

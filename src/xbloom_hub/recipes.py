@@ -210,6 +210,13 @@ def as_sent(recipe: dict) -> dict:
             "pour_volumes_ml": volumes, "total_ml": sum(volumes)}
 
 
+# The machine agitates (vibrates) the bed for this long when a pour asks it to,
+# and a pour's pause counts only after it. Measured after a pour 2026-11-15:
+# 6.7 and 6.9 s over two brews (the bloom took 56.7 and 56.9 s against 50 s
+# computed). Before a pour it is assumed the same; not measured.
+AGITATE_S = 7.0
+
+
 def plan(recipe: dict) -> dict:
     """When each pour should start and end, from the recipe's own numbers:
     volume / flow rate for the pour, then its pause. Arithmetic, not
@@ -222,10 +229,12 @@ def plan(recipe: dict) -> dict:
     for pour, volume in zip(recipe["pours"], volumes):
         duration = volume / float(pour["flow_rate"])
         total += volume
+        if pour.get("agitate_before") == 1:
+            clock += AGITATE_S
         pours.append({"start_s": round(clock, 1), "end_s": round(clock + duration, 1),
                       "volume_ml": volume, "cumulative_ml": total,
                       "temperature_c": pour["temperature_c"], "pause_s": pour["pause_s"]})
-        clock += duration + pour["pause_s"]
+        clock += duration + (AGITATE_S if pour.get("agitate_after") == 1 else 0.0) + pour["pause_s"]
     return {"pours": pours, "total_ml": total,
             "pour_end_s": pours[-1]["end_s"] if pours else 0.0}
 

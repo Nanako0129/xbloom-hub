@@ -21,7 +21,7 @@
   // When a pour started against when the plan had it (both counted from the first pour); the first has nothing to differ from.
   const diff = (i: number): string | null => {
     if (i === 0 || starts[i] === undefined || starts[0] === undefined) return null;
-    const seconds = Math.round(starts[i] - starts[0] - plan.pours[i].start_s);
+    const seconds = Math.round(starts[i] - starts[0] - (plan.pours[i].start_s - plan.pours[0].start_s));
     return t("table.seconds", { sign: seconds >= 0 ? "+" : "−", s: Math.abs(seconds) });
   };
 </script>

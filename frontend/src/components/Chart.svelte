@@ -49,6 +49,7 @@
     start: { symbol: "circle", line: "dotted", color: "axis" },
     end: { symbol: "rect", line: "solid", color: "water" },
     rezero: { symbol: "triangle", line: "dashed", color: "coffee" },
+    grind: { symbol: "diamond", line: "dotted", color: "coffee" },   // the grinder, before any water
   };
   const POINTER_OPACITY = 0.45; // the line under the pointer
   const SLIDER_HEIGHT = 18;
@@ -247,7 +248,7 @@
       </button>
     {/each}
     {#each kinds as kind (kind)}
-      <span class="key-mark"><i class="mark-{kind}"></i>{kind === "start" ? t("mark.key_start") : kind === "end" ? t("mark.key_end") : t("mark.key_rezero")}</span>
+      <span class="key-mark"><i class="mark-{kind}"></i>{t(`mark.key_${kind}`)}</span>
     {/each}
     {#if zoom}
       <button type="button" class="key zoomed" onclick={reset}>{t("chart.reset", { range: `${clock(zoom[0])}–${clock(zoom[1])}` })}</button>

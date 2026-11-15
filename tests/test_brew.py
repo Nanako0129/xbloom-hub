@@ -985,3 +985,20 @@ def test_coffee_weighs_nothing_until_water_and_counts_from_there(tmp_path):
         task.cancel()
 
     asyncio.run(run())
+
+
+def test_the_plan_counts_the_agitation_after_a_pour():
+    # Measured 2026-11-15 on kakalove-honduras-gesha-v2: the second pour began
+    # 56.7 and 56.9 s after the first (45 ml at 3.0, agitation after, pause 35).
+    from xbloom_hub.recipes import checked, plan
+    recipe = checked({"name": "v2", "cup_type": 2, "dose_g": 15, "ratio": "1:16", "grind": True,
+                      "grind_size": 60, "grinder_speed_rpm": 70, "pours": [
+        {"volume_ml": 45, "temperature_c": 94, "pause_s": 35, "pattern": 2, "flow_rate": 3.0,
+         "agitate_before": 2, "agitate_after": 1},
+        {"volume_ml": 105, "temperature_c": 93, "pause_s": 10, "pattern": 2, "flow_rate": 3.0,
+         "agitate_before": 2, "agitate_after": 2},
+        {"volume_ml": 90, "temperature_c": 92, "pause_s": 0, "pattern": 3, "flow_rate": 3.2,
+         "agitate_before": 2, "agitate_after": 2}]})
+    starts = [p["start_s"] for p in plan(recipe)["pours"]]
+    assert starts[1] == 57.0                         # 15 + 7 + 35
+    assert abs(starts[2] - starts[1] - 45.0) < 0.1   # measured 45.0 and 44.0

@@ -20,15 +20,18 @@ export interface LibraryEntry {
 // The hub's plan(), for a draft that has not been saved: volume / flow for
 // each pour, then its pause; zero is the first pour. A preview only: what is
 // saved is planned by the hub, which also checks the numbers.
+// As the hub's recipes.plan(): agitation takes AGITATE_S, a pause counts after it.
+const AGITATE_S = 7;
 export function previewPlan(pours: Pour[]): Plan {
   let clock = 0, total = 0;
   const out = pours.map((pour) => {
     const volume = Number(pour.volume_ml) || 0, flow = Number(pour.flow_rate) || 0, pause = Number(pour.pause_s) || 0;
     const duration = flow > 0 ? volume / flow : 0;
     total += volume;
+    if (Number(pour.agitate_before) === 1) clock += AGITATE_S;
     const row = { start_s: clock, end_s: clock + duration, volume_ml: volume, cumulative_ml: total,
                   temperature_c: Number(pour.temperature_c) || 0, pause_s: pause };
-    clock += duration + pause;
+    clock += duration + (Number(pour.agitate_after) === 1 ? AGITATE_S : 0) + pause;
     return row;
   });
   return { pours: out, total_ml: total, pour_end_s: out.length ? out[out.length - 1].end_s : 0 };
