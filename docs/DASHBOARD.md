@@ -50,7 +50,7 @@ made while the hub runs is served at once.
 ## Opening it
 
 Open `http://<hub address>:8377/` on any device in an allowed network.
-Nothing is stored and nothing needs pairing.
+No credential is stored and nothing needs pairing.
 
 To try it with no machine:
 

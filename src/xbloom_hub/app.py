@@ -327,8 +327,9 @@ def create_app(machine: Machine, store: RecipeStore,
     # Stateless JSON responses: one request, one answer, nothing to resume.
     # The SDK's own Host check is tied to a host it is told it binds to; this
     # app is the one that binds, and TrustedHostMiddleware plus Guard below
-    # (Host and Origin, the same two checks the SDK makes) already sit in front of this route, so the SDK's check is turned off
-    # rather than left guessing.
+    # (Host and Origin, the same two checks the SDK makes) already sit in
+    # front of this route, so the SDK's check is turned off rather than left
+    # guessing.
     mcp_app = mcp_server.streamable_http_app(
         streamable_http_path=MCP_PATH, json_response=True, stateless_http=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),

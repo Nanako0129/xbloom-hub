@@ -80,7 +80,12 @@ If one of these turns something up, decide that first.
    into
    `ssh <user>@<server> 'sudo -n install -m 400 -o 10001 -g 10001 /dev/stdin <dir>/secrets/proxy_psk'`
    (with `set -o pipefail`), and only when you are about to start the hub
-   for real. It is never written to a file on your own machine.
+   for real. It is never written to a file on your own machine. Then check it
+   is not empty:
+
+   ```bash
+   ssh <user>@<server> 'sudo -n test -s <dir>/secrets/proxy_psk' && echo ok
+   ```
    Compose ignores `mode` and owner on file secrets (they are bind mounts),
    so the `install` above is what protects them.
 

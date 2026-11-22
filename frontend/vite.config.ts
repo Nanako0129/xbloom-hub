@@ -2,8 +2,9 @@ import { defineConfig, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 // The packages whose code may end up in the page (docs/PLAN.md, S3c, C2).
-// The page can start a brew, so anything else in the bundle fails the build. Svelte's runtime, ECharts and what they need at
-// run time; the rest of the tree only builds.
+// The page can start a brew, so anything else in the bundle fails the
+// build. Svelte's runtime, ECharts and what they need at run time; the rest
+// of the tree only builds.
 const ALLOWED = new Set(["svelte", "clsx", "esm-env", "echarts", "zrender", "tslib"]);
 
 function packageOf(id: string): string | null {

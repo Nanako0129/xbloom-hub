@@ -267,7 +267,7 @@ PROBE = """
 
 @pytest.fixture
 def ui(page, hub):
-    """The dashboard, opened as a phone opens it (nothing stored, no pairing),
+    """The dashboard, opened as a phone opens it (no credential stored, no pairing),
     in English, watched for problems."""
     if not (hub_app.WEB_DIR / "index.html").is_file():
         pytest.fail(f"the dashboard is not built: run {hub_app.BUILD_COMMAND}")
