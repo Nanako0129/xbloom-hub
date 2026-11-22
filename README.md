@@ -12,8 +12,15 @@ endpoint for AI assistants, and Home Assistant on top of it.
 ## Running it
 
 - On a home server, in a container: [docs/DEPLOY.md](docs/DEPLOY.md).
-- The dashboard, pairing a phone, and a simulator for trying it without a
-  machine: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+- The dashboard, opening it on a phone, and a simulator for trying it
+  without a machine: [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+**There is no authentication.** The hub answers only the client networks
+you list in `XBLOOM_ALLOWED_NETWORKS` (loopback only by default), and any
+device on those networks can operate the machine. Never put it behind a
+reverse proxy, tunnel or port forward without authentication at that
+proxy: every client would then arrive from the proxy's address. See
+[docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Shape
 

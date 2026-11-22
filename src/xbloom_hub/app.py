@@ -4,10 +4,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import contextlib
-import hmac
 import json
 import logging
-from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -22,19 +20,19 @@ from . import errors
 from .community import LIST_FILTERS, Community
 from .machine import Machine
 from .errors import BodyTooLarge
-from .pairing import LIFETIME_S, Pairing
 from . import gate
 from .recipes import RecipeInvalid, RecipeStore, as_sent, plan
 
-TOKEN_FILE_VAR = "XBLOOM_HUB_TOKEN_FILE"
 MCP_PATH = "/mcp"
-# These routes make the hub call xBloom, so even their GETs need the token
-# (docs/PLAN.md, S3b).
+# These routes make the hub call xBloom, so even their GETs need the header
+# below (docs/PLAN.md, S3b; "No pairing", 2026-11-22).
 COMMUNITY_PATH = "/api/community"
-# The one write that needs no token: a phone trading a pairing code for it
-# (docs/PLAN.md, S3d-1). Exact method and path, nothing near it.
-CLAIM = ("POST", "/api/pair/claim")
-CLAIM_BODY_CAP = 1024
+IMPORT_BODY_CAP = 1024
+# Not a secret. A page on another origin cannot put a custom header on a
+# no-cors request (<img>, <script>, a form post), and a cors request carrying
+# one needs a preflight this app never answers. The dashboard and the MCP
+# client send it; see Guard.
+HUB_HEADER = "x-hub-request"
 log = logging.getLogger(__name__)
 # The dashboard, built from frontend/ by `frontend/npm.sh run build` (it is
 # git-ignored, and shipped in the sdist and the wheel). The hub refuses to
@@ -69,39 +67,12 @@ class SecurityHeaders:
         return await self._app(scope, receive, send_with_headers)
 
 
-def network_hosts(hosts: list[str]) -> list[str]:
-    """The allowed host names a phone could reach: not this host's loopback.
-    A page opened at 127.0.0.1 puts one of these in the pairing QR code."""
-    def loopback(host: str) -> bool:
-        try:
-            return ipaddress.ip_address(host.strip("[]")).is_loopback
-        except ValueError:
-            return host == "localhost"
-    return [h for h in hosts if not loopback(h)]
-
-
 def check_allowed_hosts(hosts: list[str]) -> list[str]:
     """Refuse a list that would switch the Host check off (P1-3)."""
     if not hosts or any(not h or "*" in h for h in hosts):
         raise SystemExit("XBLOOM_ALLOWED_HOSTS must list exact host names; "
                          "no empty entry and no wildcard")
     return hosts
-
-
-def read_token(env: Mapping[str, str]) -> str:
-    """Read the bearer token, or stop the process. Auth fails closed: an unset
-    variable, a missing file or an empty one must never mean "no token needed".
-    """
-    path = env.get(TOKEN_FILE_VAR)
-    if not path:
-        raise SystemExit(f"{TOKEN_FILE_VAR} is not set")
-    try:
-        token = Path(path).read_text().strip()
-    except OSError as err:
-        raise SystemExit(f"cannot read the token file: {err}") from err
-    if not token:
-        raise SystemExit("the token file is empty")
-    return token
 
 
 class ClientNetworks:
@@ -157,18 +128,24 @@ def parse_networks(text: str) -> list:
 
 
 class Guard:
-    """Token on every request that can change something; no cross-origin calls.
+    """No authentication: the allowed networks are the gate (docs/PLAN.md,
+    "No pairing", 2026-11-22). This keeps a page on another site, open in a
+    browser on the LAN, from making the hub act.
 
-    The token is accepted only in the Authorization header. A page on another
-    origin cannot set that header without a CORS preflight, and this app never
-    answers one (security review P1-3).
+    - A present Origin that is not this host is refused (``Origin: null``
+      included). Browsers send Origin on every cross-origin non-GET request.
+    - Every request that can change something, every request under /mcp (its
+      GET is a tool stream) and every request under /api/community (it makes
+      the hub call xBloom) must carry HUB_HEADER. A no-cors GET such as
+      ``<img src>`` carries no Origin, so this is what stops it. Sec-Fetch-Site
+      is not used: browsers send it only to https or localhost, and the hub is
+      plain http on a LAN address.
+    - TrustedHostMiddleware, before this, is the DNS-rebinding defence: a
+      rebound page has Origin equal to Host, so only the Host check refuses it.
     """
 
-    def __init__(self, app, token: str) -> None:
-        if not token:
-            raise ValueError("empty token")
+    def __init__(self, app) -> None:
         self._app = app
-        self._token = token.encode()
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -177,29 +154,20 @@ class Guard:
         origin = headers.get("origin")
         if origin is not None and urlsplit(origin).netloc != headers.get("host"):
             return await JSONResponse({"error": "foreign_origin"}, 403)(scope, receive, send)
-        # Reads are open; anything that can change something needs the token.
-        # Every MCP request needs it whatever its method: its GET is a stream
-        # of tool traffic, not a read of public state. So does every request
-        # under /api/community: it makes the hub call out to xBloom.
-        if (scope["method"], scope["path"]) == CLAIM:
-            return await self._app(scope, receive, send)
         path = scope["path"]
         if (scope["method"] not in ("GET", "HEAD") or path.startswith(MCP_PATH)
                 or path == COMMUNITY_PATH or path.startswith(COMMUNITY_PATH + "/")):
-            scheme, _, presented = headers.get("authorization", "").partition(" ")
-            if (scheme != "Bearer" or not presented
-                    or not hmac.compare_digest(presented.encode(), self._token)):
-                return await JSONResponse({"error": "unauthorized"}, 401)(scope, receive, send)
+            if headers.get(HUB_HEADER) != "1":
+                return await JSONResponse({"error": "missing_hub_header"}, 403)(scope, receive, send)
         return await self._app(scope, receive, send)
 
 
-def create_app(machine: Machine, store: RecipeStore, token: str,
+def create_app(machine: Machine, store: RecipeStore,
                allowed_hosts: list[str], radio=None, brews=None, allowed_networks=None,
                community: Community | None = None) -> Starlette:
     # No networks given: this host only. Never "no check".
     allowed_networks = allowed_networks or parse_networks(LOOPBACK)
     check_allowed_hosts(allowed_hosts)
-    pairing = Pairing()
     community = community or Community()
 
     async def state(request):
@@ -301,33 +269,6 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         await machine.acquire()
         return JSONResponse(machine.snapshot())
 
-    async def pair_start(request):
-        return JSONResponse({"code": pairing.start(), "expires_in_s": LIFETIME_S,
-                             "hosts": network_hosts(allowed_hosts)})
-
-    async def pair_cancel(request):
-        pairing.cancel()
-        return JSONResponse({"state": pairing.status()})
-
-    async def pair_status(request):
-        return JSONResponse({"state": pairing.status()})
-
-    async def pair_claim(request):
-        client = (request.client or ("?", 0))[0]
-        try:
-            # Read under the cap; then spend the code with no await in between.
-            try:
-                code = (await _json(request, cap=CLAIM_BODY_CAP)).get("code")
-            except RecipeInvalid:
-                code = None          # not a JSON object: as wrong as a wrong code
-            pairing.claim(code)
-        except Exception as err:
-            # Never the code, never the token: who asked and that it failed.
-            log.info("pairing claim from %s: refused (%s)", client, type(err).__name__)
-            raise
-        log.info("pairing claim from %s: paired", client)
-        return JSONResponse({"token": token})
-
     async def _json(request, cap: int | None = None) -> dict:
         if cap is None:
             raw = await request.body()
@@ -369,7 +310,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
         return JSONResponse(await community.detail(request.path_params["id"]))
 
     async def community_import(request):
-        body = await _json(request, cap=CLAIM_BODY_CAP)
+        body = await _json(request, cap=IMPORT_BODY_CAP)
         # Saves under a new slug only; never loads the machine.
         slug = await community.import_recipe(store, body.get("slug"), body.get("id"),
                                              body.get("share_url"))
@@ -386,7 +327,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
     # Stateless JSON responses: one request, one answer, nothing to resume.
     # The SDK's own Host check is tied to a host it is told it binds to; this
     # app is the one that binds, and TrustedHostMiddleware plus Guard below
-    # already sit in front of this route, so the SDK's check is turned off
+    # (Host and Origin, the same two checks the SDK makes) already sit in front of this route, so the SDK's check is turned off
     # rather than left guessing.
     mcp_app = mcp_server.streamable_http_app(
         streamable_http_path=MCP_PATH, json_response=True, stateless_http=True,
@@ -435,10 +376,6 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Route("/api/brews/{brew_id}", brew_item),
             Route("/api/link/release", release, methods=["POST"]),
             Route("/api/link/acquire", acquire, methods=["POST"]),
-            Route("/api/pair/start", pair_start, methods=["POST"]),
-            Route("/api/pair/cancel", pair_cancel, methods=["POST"]),
-            Route("/api/pair/status", pair_status, methods=["POST"]),
-            Route(CLAIM[1], pair_claim, methods=["POST"]),
             Route(f"{COMMUNITY_PATH}/criteria", community_criteria),
             Route(f"{COMMUNITY_PATH}/search", community_search),
             Route(f"{COMMUNITY_PATH}/{{id:int}}", community_item),
@@ -456,7 +393,7 @@ def create_app(machine: Machine, store: RecipeStore, token: str,
             Middleware(ClientNetworks, networks=allowed_networks),
             # Refuses a Host header that is not ours: DNS-rebinding protection.
             Middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts),
-            Middleware(Guard, token=token),
+            Middleware(Guard),
         ],
         exception_handlers={exc: failure for exc in errors.TABLE},
         lifespan=lifespan,

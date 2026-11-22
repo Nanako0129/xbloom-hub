@@ -1,5 +1,3 @@
-// hub.svelte.ts runs first: it takes the token out of the address before
-// anything reads the route (docs/PLAN.md, S3c, C10).
 import "./lib/hub.svelte";
 import "./global.css";
 import { mount } from "svelte";

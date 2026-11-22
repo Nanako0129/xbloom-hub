@@ -1497,6 +1497,63 @@ dependency; revert the merge.
 **Stops.** The QR library needs inline styles, `eval` or `innerHTML` to
 draw: stop and ask.
 
+## No pairing (2026-11-22)
+
+**Decision.** The owner's phone lost its stored token again (the hub log
+showed two `POST /api/machine/load` answered 401 from the phone; the hub had
+been up six days with the same token, so the browser had dropped its
+storage), and the owner asked for pairing to go. Asked, the owner chose to
+remove it from this hub and from the kettle hub, accepting that any device
+on an allowed network can operate the machine, and, after the security
+review below, that a local AI agent able to run `curl` can too.
+
+**The gate now.** No token and no pairing. In order:
+
+1. `ClientNetworks`: the client's address must be in
+   `XBLOOM_ALLOWED_NETWORKS` (default loopback only, so a fresh install is not
+   opened to a LAN by this change).
+2. `TrustedHostMiddleware` with exact host names: the DNS-rebinding defence.
+   A rebound page has `Origin` equal to `Host`, so this is the check that
+   refuses it.
+3. `Guard`: a present `Origin` that is not this host gets 403 (`Origin: null`
+   included). Every non-GET request, every request under `/mcp` and every
+   request under `/api/community` must carry `X-Hub-Request: 1`, else 403
+   `missing_hub_header`. The header is not a secret; a page on another site
+   cannot add it to a no-cors request, and a cors request carrying it needs a
+   preflight the hub never answers. That is the property the token gave
+   (P1-3). `Sec-Fetch-Site` is not used: browsers send it only to https or
+   localhost, and the hub is plain http on a LAN address.
+
+The dashboard sends the header on exactly those requests; `.mcp.json` sends
+it as a static header. `tests/browser/test_cross_site.py` serves a page from
+a second http origin that fires an `<img>` at `/api/community/search` and
+`/mcp`, a no-cors fetch, and a text/plain form post of JSON at
+`/api/machine/load`; every answer is 403, the hub calls xBloom zero times and
+the machine stays idle. With the header check switched off, the same test
+fails in Chromium and WebKit on `GET /mcp` and the community search answering
+200.
+
+**Security review of the new gate** (before implementation):
+
+| ID | Finding | Disposition |
+|---|---|---|
+| N1 (P1) | `Sec-Fetch-Site`, first planned in place of the token, is never sent to a plain-http LAN origin, so a cross-site `<img>` would reach `/api/community/*` (unbounded calls to xBloom) and `GET /mcp` | FIX: the `X-Hub-Request` header above, on the whole set the token covered, writes included |
+| N2 (P1) | The token was also the barrier between a prompt-injected local agent and REST start: `curl` load → ticket → start needs no secret now | ACCEPT by the owner. docs/CLAUDE-CODE.md rewritten: HTTP clients aimed at the hub must never be auto-allowed |
+| N3 (P2) | On a public-repo install the network list is the only access control; a reverse proxy, tunnel or Docker Desktop's gateway address makes every client look allowed | FIX: README and docs/DEPLOY.md say so and tell to check the logged client address before widening the list |
+| N4 (P3) | Writes rested on `Origin` alone, and `_json` ignores Content-Type | FIX: covered by the header on writes; a text/plain form post is refused in the test above |
+| N5 (P3) | MCP POST already needs `application/json`; the SDK's own rebinding check stays off | No change; comments now say Host and Origin are the load-bearing checks |
+
+**Superseded.** P1-3's bearer token (replaced by the header for the same
+preflight property; the Host check, the foreign-Origin check and "GET never
+mutates" are unchanged); P2-1 (no token to keep out of `docker inspect`);
+P2-2 (now ACCEPT for every caller, N2); all of S3d. Those sections stay as
+written, as the record of what was built then.
+
+**Removed.** `pairing.py` and its routes, `read_token` and
+`XBLOOM_HUB_TOKEN_FILE`, the `hub_token` Compose secret, the PairPanel, the
+QR-code package, the page's token storage, and `tools/mcp-auth-headers.sh`.
+An old `secrets/hub_token` on a server is no longer read and can be deleted.
+
 ## S0 — prove the radio path
 
 Done 2026-11-14: [S0-RESULTS.md](S0-RESULTS.md). The text below is the slice

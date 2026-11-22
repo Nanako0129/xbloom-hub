@@ -46,8 +46,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "ending.finished": "完成", "ending.stopped": "已停止", "ending.abandoned": "中途離開",
     "ending.home": "回到首頁", "ending.asleep": "機器休眠", "ending.link_lost": "連線中斷", "ending.running": "進行中",
-
-    "error.unauthorized": "這台裝置還沒配對。請在已配對裝置的「主控台」按「加入裝置」，再用這台的相機掃 QR code。",
     "error.not_ready": "機器現在的狀態不能這樣做。",
     "error.bad_ticket": "啟動憑證已失效。請取消後重新載入。",
     "error.recipe_is_loaded": "這份配方正載入在機器上，先取消載入。",
@@ -76,6 +74,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "community.reason.bypass_water": "使用了 bypass 加水，hub 不支援。", "community.reason.share_url": "沒有可用的分享連結。",
     "community.reason.other": "{field}：{reason}",
     "error.foreign_origin": "請直接從 hub 的網址開啟這個頁面。",
+    "error.missing_hub_header": "這個請求不是從 hub 的頁面送出的。請重新整理頁面再試一次。",
     "error.no_hub": "連不到 hub。",
     "error.http": "請求失敗（{status}）。",
 
@@ -149,15 +148,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.name": "{name}，{when}", "compare.note": "兩次都以第一段注水開始為零點對齊。",
 
     "console.title": "主控台", "console.link": "連線", "console.reason": "原因", "console.firmware": "韌體",
-    "console.activity": "機器狀態代碼", "console.token": "這台裝置的權杖", "console.token_yes": "已儲存", "console.token_no": "沒有",
+    "console.activity": "機器狀態代碼",
     "console.language": "語言",
-    "pair.title": "加入裝置", "pair.hint": "用手機相機掃描 QR code，手機就能操作咖啡機。QR code 兩分鐘內有效，只能用一次。",
-    "pair.start": "顯示 QR code", "pair.close": "關閉", "pair.again": "重新產生", "pair.qr_label": "配對用 QR code",
-    "pair.opens": "手機會開啟 {host}。", "pair.needs_token": "這台裝置還沒配對，不能再加入其他裝置。請改用已配對的裝置開這頁（例如這台 Mac 上的 127.0.0.1）。",
-    "pair.left": "{s} 秒內有效", "pair.expired": "已過期。", "pair.paired": "已配對。",
-    "pair.loopback": "這頁是用本機位址（{host}）開的，手機開不了。請先用 hub 的網路位址開這頁，再產生 QR code。",
-    "pair.claiming": "正在配對…", "pair.claim_ok": "這台裝置已配對。", "pair.claim_failed": "配對碼已用過或已過期。請在已配對的裝置上重新產生 QR code。",
-    "pair.claim_nostore": "這個瀏覽器不讓網頁存資料（可能是無痕視窗），配對沒有留下來。請改用一般視窗，重新產生 QR code 再掃一次。",
     "console.share": "和官方 App 輪流使用", "console.share_hint": "咖啡機一次只接受一個連線。讓出之後官方 App 才連得上。",
     "console.changes": "狀態變化", "console.no_changes": "還沒有變化。",
     "console.commands": "送往機器的指令", "console.no_commands": "還沒有。",
@@ -206,8 +198,6 @@ export const MESSAGES: Record<string, Record<string, string>> = {
 
     "ending.finished": "Finished", "ending.stopped": "Stopped", "ending.abandoned": "Abandoned",
     "ending.home": "Returned to home", "ending.asleep": "Machine went to sleep", "ending.link_lost": "Connection lost", "ending.running": "In progress",
-
-    "error.unauthorized": "This device is not paired. On a paired device, open Console, press Add a device, and scan the QR code with this one's camera.",
     "error.not_ready": "The machine cannot do that in its current state.",
     "error.bad_ticket": "The start ticket is no longer valid. Cancel and load again.",
     "error.recipe_is_loaded": "This recipe is loaded on the machine. Cancel the load first.",
@@ -236,6 +226,7 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "community.reason.bypass_water": "It uses bypass water, which the hub does not support.", "community.reason.share_url": "It has no usable share link.",
     "community.reason.other": "{field}: {reason}",
     "error.foreign_origin": "Open this page from the hub's own address.",
+    "error.missing_hub_header": "This request did not come from the hub's page. Reload the page and try again.",
     "error.no_hub": "Cannot reach the hub.",
     "error.http": "Request failed ({status}).",
 
@@ -309,15 +300,8 @@ export const MESSAGES: Record<string, Record<string, string>> = {
     "compare.name": "{name}, {when}", "compare.note": "Both are aligned at the start of their first pour.",
 
     "console.title": "Console", "console.link": "Link", "console.reason": "Reason", "console.firmware": "Firmware",
-    "console.activity": "Machine activity code", "console.token": "Token on this device", "console.token_yes": "Stored", "console.token_no": "None",
+    "console.activity": "Machine activity code",
     "console.language": "Language",
-    "pair.title": "Add a device", "pair.hint": "Scan the QR code with a phone's camera and the phone can run the machine. The code works once, for two minutes.",
-    "pair.start": "Show QR code", "pair.close": "Close", "pair.again": "New code", "pair.qr_label": "QR code for pairing",
-    "pair.opens": "The phone will open {host}.", "pair.needs_token": "This device is not paired, so it cannot add others. Open this page on a paired device (for example at 127.0.0.1 on the hub's computer).",
-    "pair.left": "Valid for {s} s", "pair.expired": "Expired.", "pair.paired": "Paired.",
-    "pair.loopback": "This page was opened at a local address ({host}) that a phone cannot reach. Open it at the hub's network address first, then make the QR code.",
-    "pair.claiming": "Pairing…", "pair.claim_ok": "This device is paired.", "pair.claim_failed": "The pairing code was used or has expired. Make a new QR code on a paired device.",
-    "pair.claim_nostore": "This browser does not let the page keep data (a private window?), so the pairing was not kept. Use a normal window, make a new QR code and scan it again.",
     "console.share": "Sharing with the official app", "console.share_hint": "The machine takes one connection at a time. Release the link so the official app can connect.",
     "console.changes": "State changes", "console.no_changes": "Nothing yet.",
     "console.commands": "Commands sent to the machine", "console.no_commands": "None yet.",

@@ -11,7 +11,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import HOSTILE, RECIPES, TOKEN
+from .conftest import HOSTILE, RECIPES
 
 pytestmark = pytest.mark.browser
 
@@ -172,11 +172,6 @@ def test_the_confirmation_shows_the_recipe_the_hub_holds(ui, hub):
 
 
 # ---- the rest of the page ------------------------------------------------------------
-
-def test_open_with_the_token_leaves_no_trace(ui, hub):
-    assert "t=" not in ui.evaluate("location.hash")
-    assert TOKEN not in ui.locator("body").inner_text()
-
 
 def test_load_start_follow_and_finish(ui, hub):
     load_from_page(ui, hub, "short")

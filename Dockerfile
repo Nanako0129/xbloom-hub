@@ -44,12 +44,11 @@ RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv --mount=type=cache,targe
 ENV PATH="/app/.venv/bin:$PATH" \
     XBLOOM_BIND=0.0.0.0 \
     XBLOOM_DATA_DIR=/data \
-    XBLOOM_HUB_TOKEN_FILE=/run/secrets/hub_token \
     XBLOOM_PROXY_PSK_FILE=/run/secrets/proxy_psk
 USER 10001
 EXPOSE 8377
 # From inside, on loopback: the hub's allowed lists keep 127.0.0.0/8 and
-# 127.0.0.1. /api/state needs no token, so none is in here. In the image, not
+# 127.0.0.1. /api/state is a plain read, so it needs no header. In the image, not
 # only in compose.yaml, so a plain `docker run` (the smoke test) has it too.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/state', timeout=3)"]

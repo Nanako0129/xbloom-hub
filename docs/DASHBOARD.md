@@ -20,26 +20,17 @@ uv run xbloom-hub
 
 A client outside the listed networks gets 403 before anything else is
 looked at, whichever network the host is on; a network of every address is
-refused. The address bar must use a listed host name. Changing the machine
-still needs the token; a phone gets it by pairing (below). The connection
-is plain HTTP on the LAN.
+refused. The address bar must use a listed host name. The connection is
+plain HTTP on the LAN.
 
-### Pairing a phone
-
-On a device that already holds the token, open the console and press "Add
-a device". A browser keeps the token per address, so on the hub's own
-computer that is usually the page at `127.0.0.1`; opened there, the QR
-code carries the first host in `XBLOOM_ALLOWED_HOSTS` that is not
-loopback (the panel names it), and warns only if there is none. Scan the QR
-code with the phone's camera. The code inside it works once, for two
-minutes, and is void when the panel closes or a new one is made; the phone
-trades it for the token and from then on can do what the first device can.
-The panel says "paired" once it has. Each claim is logged by the hub with
-the client's address, never with the code or the token.
-
-There is one token, so every paired device holds the same one. To unpair
-every device at once (a lost phone, a guest who scanned a code), write a
-new token into the token file and restart the hub, then pair again.
+There is no pairing and no token (docs/PLAN.md, "No pairing", 2026-11-22):
+any browser on a listed network opens the plain address and can do
+everything. What keeps a web page on another site out, when it is open in a
+browser on the same network, is that the hub refuses a foreign `Origin`, and
+that every request that changes something (and every MCP or community
+request) must carry the header `X-Hub-Request: 1`, which such a page cannot
+add. The network list is therefore the only access control: list only
+networks whose every device you trust with the machine.
 
 ## Building it
 
@@ -58,21 +49,13 @@ made while the hub runs is served at once.
 
 ## Opening it
 
-The hub prints nothing secret, so the token is handed to a browser once, in
-the address:
-
-```
-http://<hub address>:8377/#t=<the contents of the token file>
-```
-
-The page moves the token into the browser's storage and removes it from the
-address bar. After that the plain address is enough on that device. Reading
-needs no token; loading, starting, stopping, cancelling and deleting do.
+Open `http://<hub address>:8377/` on any device in an allowed network.
+Nothing is stored and nothing needs pairing.
 
 To try it with no machine:
 
 ```sh
-XBLOOM_RADIO=sim XBLOOM_HUB_TOKEN_FILE=secrets/hub_token uv run xbloom-hub
+XBLOOM_RADIO=sim uv run xbloom-hub
 ```
 
 `XBLOOM_SIM_BREW_S` sets how long a simulated brew takes (default 45 s).
@@ -140,8 +123,8 @@ the home's IP address, and the HTTP library's User-Agent. No token, no
 serial number, no machine state is sent; no cookie is kept; nothing is
 signed in to. Images are never fetched.
 
-These routes (`/api/community/...`) need the token even to read, since each
-makes the hub call out. At most two run at once (a third gets 503), each
+These routes (`/api/community/...`) need the `X-Hub-Request` header even to
+read, since each makes the hub call out. At most two run at once (a third gets 503), each
 gives up after 15 seconds, and a failure is a 502 naming one of `timeout`,
 `upstream_status`, `upstream_refused` or `malformed_response`. An import
 writes a new recipe file and never replaces one or loads the machine. A
@@ -155,14 +138,15 @@ its author wrote it, is shown as not importable with the reason.
 - Text from recipes and from the machine is inserted as text, never as markup.
   A recipe named `<img src=x onerror=...>` shows as exactly that.
 - A recipe's source becomes a link only if it starts with `https://`.
-- The event stream and the read-only addresses need no token and carry no
+- The event stream and the read-only addresses need no header and carry no
   ticket and no serial number.
 
 ## Browser tests
 
 `tests/browser/` drives the page in a real browser against a simulator hub
-that the test starts in its own process, with a throwaway token and data
-directory. They are left out of the default `pytest` run; run them with:
+that the test starts in its own process, with a throwaway data directory.
+`test_cross_site.py` serves a page from a second origin and checks that
+nothing it can send makes the hub act. They are left out of the default `pytest` run; run them with:
 
 ```sh
 uv run playwright install chromium webkit     # once

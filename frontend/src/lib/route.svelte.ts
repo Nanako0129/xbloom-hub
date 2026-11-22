@@ -15,7 +15,6 @@ function parse(hash: string): Route {
 export const route = $state({ current: parse(location.hash), hash: location.hash });
 
 window.addEventListener("hashchange", () => {
-  // Read the address as it is now: hub.svelte.ts may have just taken a token out of it.
   route.current = parse(location.hash);
   route.hash = location.hash;
 });

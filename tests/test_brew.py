@@ -20,8 +20,7 @@ from xbloom_hub.machine import BadTicket, Machine, NotReady
 from xbloom_hub.recipes import RecipeStore, as_sent, checked, to_machine
 from xbloom_hub.sim import SimListener, SimRadio, _SimClient
 
-TOKEN = "test-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
+HUB = {"X-Hub-Request": "1"}
 RECIPE = checked({
     "name": "Test", "cup_type": 2, "dose_g": 5, "ratio": "1:20",
     "grind": False, "grind_size": 40, "grinder_speed_rpm": 60,
@@ -396,7 +395,7 @@ def client(tmp_path):
     machine = Machine(SimRadio(), Fast, BrewStore(tmp_path / "brews"))
     store = RecipeStore(tmp_path / "recipes")
     store.put("test", RECIPE)
-    app = create_app(machine, store, TOKEN, ["testserver"], brews=machine._brews)
+    app = create_app(machine, store, ["testserver"], brews=machine._brews)
     with TestClient(app, client=("127.0.0.1", 50000)) as c:
         deadline = time.monotonic() + 3
         while c.get("/api/state").json()["state"] != "idle":
@@ -407,12 +406,12 @@ def client(tmp_path):
 
 
 def test_start_and_stop_over_http_and_not_over_mcp(client):
-    assert client.post("/api/machine/start", json={"ticket": "x"}).status_code == 401
-    assert client.post("/api/machine/stop").status_code == 401
-    loaded = client.post("/api/machine/load", json={"slug": "test"}, headers=AUTH).json()
-    assert client.post("/api/machine/start", json={"ticket": "bad"}, headers=AUTH).status_code == 403
-    assert client.post("/api/machine/start", json={}, headers=AUTH).status_code == 403
-    started = client.post("/api/machine/start", json={"ticket": loaded["ticket"]}, headers=AUTH)
+    assert client.post("/api/machine/start", json={"ticket": "x"}).status_code == 403
+    assert client.post("/api/machine/stop").status_code == 403
+    loaded = client.post("/api/machine/load", json={"slug": "test"}, headers=HUB).json()
+    assert client.post("/api/machine/start", json={"ticket": "bad"}, headers=HUB).status_code == 403
+    assert client.post("/api/machine/start", json={}, headers=HUB).status_code == 403
+    started = client.post("/api/machine/start", json={"ticket": loaded["ticket"]}, headers=HUB)
     assert started.status_code == 200 and started.json()["state"] == "brewing"
     state = client.get("/api/state").json()
     assert state["brew"]["recipe_name"] == "Test" and "ticket" not in json.dumps(state)
@@ -425,10 +424,10 @@ def test_start_and_stop_over_http_and_not_over_mcp(client):
     record = client.get(f"/api/brews/{listed[0]['id']}").json()
     assert record["samples"]["weight"] and "ticket" not in json.dumps(record)
     assert client.get("/api/brews/nope").status_code == 400
-    assert client.post("/api/machine/stop", headers=AUTH).status_code == 409
+    assert client.post("/api/machine/stop", headers=HUB).status_code == 409
 
     tools = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
-                        headers={**AUTH, "Accept": "application/json, text/event-stream"})
+                        headers={**HUB, "Accept": "application/json, text/event-stream"})
     names = {t["name"] for t in tools.json()["result"]["tools"]}
     assert not names & {"start", "start_brew", "stop", "stop_brew", "brew"}
     assert len(names) == 11          # the eight of S2 and three for the community hub (S3b)
@@ -508,7 +507,7 @@ def test_the_page_uses_only_keys_that_exist_and_holds_no_text_of_its_own():
     # Keys built at run time: every value the hub can send has an entry.
     for prefix, values in (("state", ("offline", "idle", "asleep", "armed", "brewing", "finished", "busy", "released", "unheard", "scale")),
                            ("ending", ("finished", "stopped", "abandoned", "home", "asleep", "link_lost")),
-                           ("error", ("unauthorized", "not_ready", "bad_ticket", "recipe_is_loaded",
+                           ("error", ("missing_hub_header", "not_ready", "bad_ticket", "recipe_is_loaded",
                                       "recipe_invalid", "recipe_exists", "machine_refused", "machine_unanswered",
                                       "cancel_failed", "not_found", "foreign_origin")),
                            ("meta", ("bean", "roaster", "process", "roast", "source", "notes")),

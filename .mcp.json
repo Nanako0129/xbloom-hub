@@ -3,7 +3,7 @@
     "xbloom-hub": {
       "type": "http",
       "url": "http://127.0.0.1:8377/mcp",
-      "headersHelper": "./tools/mcp-auth-headers.sh"
+      "headers": {"X-Hub-Request": "1"}
     }
   }
 }

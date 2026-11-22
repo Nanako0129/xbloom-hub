@@ -1,6 +1,5 @@
 """Run the hub. Configuration is environment variables only:
 
-XBLOOM_HUB_TOKEN_FILE   file holding the bearer token (required)
 XBLOOM_PROXY_HOST       IP address of the ESPHome Bluetooth proxy
 XBLOOM_PROXY_PSK        the proxy's Noise key (or XBLOOM_PROXY_PSK_FILE, which wins
                         when set; the container image sets it, so there the key
@@ -24,7 +23,7 @@ from pathlib import Path
 
 import uvicorn
 
-from .app import BUILD_COMMAND, LOOPBACK, WEB_DIR, check_allowed_hosts, create_app, parse_networks, read_token
+from .app import BUILD_COMMAND, LOOPBACK, WEB_DIR, check_allowed_hosts, create_app, parse_networks
 from .brews import BrewStore
 from .machine import Machine
 from .recipes import RecipeStore
@@ -47,7 +46,6 @@ def main() -> None:
         raise SystemExit(f"the dashboard is not built ({WEB_DIR} has no index.html); "
                          f"from the repository, run: {BUILD_COMMAND}")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    token = read_token(env)
     data = Path(env.get("XBLOOM_DATA_DIR", "data"))
     brews = BrewStore(data / "brews")
     hosts = check_allowed_hosts(
@@ -77,7 +75,7 @@ def main() -> None:
 
     store = RecipeStore(data / "recipes")
     networks = parse_networks(env.get("XBLOOM_ALLOWED_NETWORKS", LOOPBACK))
-    app = create_app(machine, store, token, hosts, radio, brews, allowed_networks=networks)
+    app = create_app(machine, store, hosts, radio, brews, allowed_networks=networks)
     uvicorn.run(app, **server_options(env))
 
 
@@ -89,8 +87,8 @@ def server_options(env) -> dict:
         # waits for every dashboard to close (seen in the S1 run).
         timeout_graceful_shutdown=3,
         # uvicorn otherwise believes X-Forwarded-For from loopback, which
-        # would let a local process choose the address the network check and
-        # the pairing log see (docs/PLAN.md, S4-6).
+        # would let a local process choose the address the network check
+        # sees: there is no other access control (docs/PLAN.md, S4-6).
         proxy_headers=False,
     )
 

@@ -17,8 +17,7 @@ from xbloom_hub.machine import Machine, NotReady
 from xbloom_hub.recipes import RecipeStore, as_sent, checked, to_machine
 from xbloom_hub.sim import SimListener, SimRadio, _SimClient
 
-TOKEN = "test-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
+HUB = {"X-Hub-Request": "1"}
 RECIPE = checked({
     "name": "Test", "cup_type": 2, "dose_g": 5, "ratio": "1:5",
     "grind": False, "grind_size": 40, "grinder_speed_rpm": 60,
@@ -301,7 +300,7 @@ def test_zero_at_home_without_the_scale_page(tmp_path):
 @pytest.fixture
 def client(tmp_path):
     machine = Machine(SimRadio(), SimListener)
-    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
+    app = create_app(machine, RecipeStore(tmp_path), ["testserver"])
     with TestClient(app, client=("127.0.0.1", 50000)) as c:
         deadline = time.monotonic() + 3
         while c.get("/api/state").json()["state"] != "idle":
@@ -311,23 +310,23 @@ def client(tmp_path):
         yield c
 
 
-def test_routes_need_the_token_and_post(client):
+def test_routes_need_the_hub_header_and_post(client):
     before = list(sent(client.machine))
     for path in ("/api/scale/enter", "/api/scale/tare", "/api/scale/quit"):
-        assert client.post(path).status_code == 401, path
-        assert client.post(path, headers={"Authorization": "Bearer wrong"}).status_code == 401, path
+        assert client.post(path).status_code == 403, path
+        assert client.post(path, headers={"Authorization": "Bearer old"}).status_code == 403, path
         assert client.get(path).status_code == 405, path
-        assert client.get(path, headers=AUTH).status_code == 405, path
+        assert client.get(path, headers=HUB).status_code == 405, path
     assert sent(client.machine) == before
-    assert client.post("/api/scale/quit", headers=AUTH).json()["error"] == "not_ready"
-    assert client.post("/api/scale/enter", headers=AUTH).json()["state"] == "scale"
-    assert client.post("/api/scale/tare", headers=AUTH).json()["weight_g"] == 0
-    assert client.post("/api/scale/quit", headers=AUTH).json()["state"] == "idle"
+    assert client.post("/api/scale/quit", headers=HUB).json()["error"] == "not_ready"
+    assert client.post("/api/scale/enter", headers=HUB).json()["state"] == "scale"
+    assert client.post("/api/scale/tare", headers=HUB).json()["weight_g"] == 0
+    assert client.post("/api/scale/quit", headers=HUB).json()["state"] == "idle"
 
 
 def test_machine_state_names_the_scale_state(client):
     tools = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
-                        headers={**AUTH, "Accept": "application/json, text/event-stream"}).json()
+                        headers={**HUB, "Accept": "application/json, text/event-stream"}).json()
     described = {t["name"]: t["description"] for t in tools["result"]["tools"]}
     assert "scale (" in described["machine_state"]
     assert not {"scale_enter", "tare", "scale_quit"} & set(described)

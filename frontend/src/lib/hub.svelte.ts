@@ -1,54 +1,14 @@
-// The page's one way to the hub: the token, requests, the state stream.
-// docs/PLAN.md, S3c: the token arrives once in the address, is kept in
-// localStorage, and is sent only in the Authorization header (C10).
+// The page's one way to the hub: requests and the state stream.
+// No token and no pairing (docs/PLAN.md, "No pairing", 2026-11-22): the hub
+// answers only its allowed networks, and every request that could change
+// something carries the X-Hub-Request header, which a page on another site
+// cannot add without a preflight the hub never answers.
 
 import { MESSAGES } from "./messages";
 import { t } from "./i18n.svelte";
 
-const TOKEN_KEY = "xbloom-hub-token";
-
-// Take the token out of the address: before anything reads it, and again if
-// a #t= link is opened in a tab that already shows the page. Registered here,
-// before the router's listener, so the router never sees it.
-function takeToken(): void {
-  const match = location.hash.match(/^#t=([A-Za-z0-9_\-.~+/=]+)$/);
-  if (!match) return;
-  try { localStorage.setItem(TOKEN_KEY, match[1]); } catch { /* private mode */ }
-  history.replaceState(null, "", location.pathname + "#/");
-}
-takeToken();
-window.addEventListener("hashchange", takeToken);
-
-// Pairing (docs/PLAN.md, S3d): a phone opened #p=<code> from a QR code.
-// Only the exact form counts; the code leaves the address at once, before
-// anything else runs, and is then traded for the token. A failed trade
-// leaves a token this device already holds as it is.
-export const pairing = $state({ claim: "none" as "none" | "claiming" | "paired" | "failed" | "nostore" });
-
-function takePairing(): void {
-  const match = location.hash.match(/^#p=([A-Za-z0-9_-]{22})$/);
-  if (!match) return;
-  history.replaceState(null, "", location.pathname + "#/");
-  pairing.claim = "claiming";
-  api<{ token: string }>("POST", "/api/pair/claim", { code: match[1] })
-    .then((data) => {
-      if (typeof data?.token !== "string" || !data.token) throw new Error("refused");
-      try { localStorage.setItem(TOKEN_KEY, data.token); } catch { pairing.claim = "nostore"; return; }
-      pairing.claim = "paired";
-    })
-    .catch(() => { pairing.claim = "failed"; });
-}
-takePairing();
-window.addEventListener("hashchange", takePairing);
-
-export function hasToken(): boolean {
-  pairing.claim;               // read again once a pairing lands
-  try { return Boolean(localStorage.getItem(TOKEN_KEY)); } catch { return false; }
-}
-
-function token(): string {
-  try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; }
-}
+// A device paired before then still holds the old token: wipe it.
+try { localStorage.removeItem("xbloom-hub-token"); } catch { /* private mode */ }
 
 export class HubError extends Error {
   constructor(message: string, readonly code?: string, readonly fields?: Record<string, string>) {
@@ -68,7 +28,7 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   if (!path.startsWith("/api/")) throw new Error(`not a hub path: ${path}`);
   const headers: Record<string, string> = {};
   const options: RequestInit = { method, headers };
-  if (method !== "GET" || path.startsWith("/api/community")) headers.Authorization = `Bearer ${token()}`;
+  if (method !== "GET" || path.startsWith("/api/community")) headers["X-Hub-Request"] = "1";
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
