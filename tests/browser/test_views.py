@@ -9,29 +9,12 @@ import httpx
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import TOKEN
-
 
 
 @pytest.fixture
 def next_ui(ui):
     """The dashboard, as every browser test opens it (conftest.py's `ui`)."""
     return ui
-
-def test_the_token_leaves_the_address_and_the_page(next_ui, hub):
-    assert next_ui.evaluate("location.hash") == "#/"
-    assert next_ui.evaluate("location.pathname") == "/"
-    assert TOKEN not in next_ui.locator("body").inner_text()
-    assert next_ui.evaluate("localStorage.getItem('xbloom-hub-token')") == TOKEN
-
-
-def test_a_token_link_opened_in_a_showing_tab_is_taken_too(next_ui, hub):
-    next_ui.evaluate("localStorage.removeItem('xbloom-hub-token')")
-    next_ui.evaluate(f"location.hash = '#t={TOKEN}'")
-    next_ui.wait_for_function("() => location.hash === '#/'")
-    assert next_ui.evaluate("localStorage.getItem('xbloom-hub-token')") == TOKEN
-    assert TOKEN not in next_ui.locator("body").inner_text()
-
 
 def test_the_shell_follows_the_machine(next_ui, hub):
     expect(next_ui.locator("#tabs a")).to_have_count(5)          # Now, Recipes, History, Scale, Console
@@ -289,7 +272,7 @@ def test_the_logo_and_the_home_screen_entry_are_served(ui, hub):
         answer = ui.request.get(f"{hub.base}/{path}")
         assert answer.status == 200 and answer.headers["content-type"].startswith(kind), path
     manifest = ui.request.get(f"{hub.base}/manifest.json").json()
-    # Opens in the browser: a standalone app on iOS would not share the pairing.
+    # Opens in the browser, not standalone (owner's choice, 2026-11-14).
     assert manifest["display"] == "browser" and manifest["name"] == "xbloom hub"
     assert ui.locator("#side .brand img").evaluate("img => img.naturalWidth > 0")
 

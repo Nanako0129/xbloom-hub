@@ -8,7 +8,6 @@ from .brews import BadBrewId
 from .community import BadQuery, BadShareLink, CommunityBusy, CommunityFailed, NotImportable
 from .gate import GateRefused
 from .machine import BadTicket, CancelFailed, NotReady
-from .pairing import BadPairingCode
 from .recipes import BadSlug, RecipeExists, RecipeInvalid
 
 
@@ -33,7 +32,6 @@ TABLE: dict[type[Exception], tuple[int, str]] = {
     CommandRefused: (502, "machine_refused"),
     CommandUnanswered: (502, "machine_unanswered"),
     GateRefused: (500, "gate_refused"),
-    BadPairingCode: (403, "bad_pairing_code"),
     BodyTooLarge: (413, "body_too_large"),
     # xBloom's community hub (docs/PLAN.md, S3b). A 502's detail is one of
     # community.WORDS, never text from the service.

@@ -8,13 +8,12 @@ from starlette.testclient import TestClient
 from xbloom.ble import FFE1_UUID
 
 from xbloom_hub import gate
-from xbloom_hub.app import create_app, read_token
+from xbloom_hub.app import create_app
 from xbloom_hub.machine import Machine, NotReady
 from xbloom_hub.recipes import BadSlug, RecipeInvalid, RecipeStore, as_sent, checked, to_machine
 from xbloom_hub.sim import SimListener, SimRadio, _SimClient
 
-TOKEN = "test-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
+HUB = {"X-Hub-Request": "1"}
 RECIPE = {      # the hub's one recipe shape; grinder off, 25 ml of unheated water
     "name": "Test", "cup_type": 2, "dose_g": 5.0, "ratio": "1:5",
     "grind": False, "grind_size": 40, "grinder_speed_rpm": 60,
@@ -211,23 +210,10 @@ def test_invalid_recipe_is_refused(tmp_path):
 
 
 # ---- http ---------------------------------------------------------------- #
-def test_token_must_exist_and_be_non_empty(tmp_path):
-    with pytest.raises(SystemExit):
-        read_token({})
-    with pytest.raises(SystemExit):
-        read_token({"XBLOOM_HUB_TOKEN_FILE": str(tmp_path / "missing")})
-    empty = tmp_path / "empty"
-    empty.write_text(" \n")
-    with pytest.raises(SystemExit):
-        read_token({"XBLOOM_HUB_TOKEN_FILE": str(empty)})
-    empty.write_text("abc\n")
-    assert read_token({"XBLOOM_HUB_TOKEN_FILE": str(empty)}) == "abc"
-
-
 @pytest.fixture
 def client(tmp_path):
     machine = Machine(SimRadio(), SimListener)
-    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
+    app = create_app(machine, RecipeStore(tmp_path), ["testserver"])
     with TestClient(app, client=("127.0.0.1", 50000)) as c:
         c.machine = machine
         deadline = time.monotonic() + 3
@@ -237,35 +223,42 @@ def client(tmp_path):
         yield c
 
 
-def test_auth_host_and_origin(client):
-    assert client.get("/api/state").status_code == 200           # reads need no token
-    for headers in ({}, {"Authorization": "Bearer "}, {"Authorization": "Bearer wrong"},
-                    {"Authorization": TOKEN}, {"Authorization": f"Basic {TOKEN}"}):
-        assert client.post("/api/machine/cancel", headers=headers).status_code == 401
-    assert client.post(f"/api/machine/cancel?token={TOKEN}").status_code == 401
+def test_hub_header_host_and_origin(client):
+    assert client.get("/api/state").status_code == 200           # reads need nothing
+    # No pairing: a write needs only the fixed header, which a page on another
+    # site cannot add (docs/PLAN.md, "No pairing"). Anything else is refused.
+    for headers in ({}, {"X-Hub-Request": "0"}, {"X-Hub-Request": ""},
+                    {"Authorization": "Bearer anything"}, {"X-Requested-With": "XMLHttpRequest"}):
+        reply = client.post("/api/machine/cancel", headers=headers)
+        assert reply.status_code == 403 and reply.json()["error"] == "missing_hub_header", headers
+    assert client.post("/api/machine/cancel?x-hub-request=1").status_code == 403
+    # A form post from another page: text/plain JSON, no custom header.
+    form = {"Content-Type": "text/plain"}
+    assert client.post("/api/machine/load", content=b'{"slug": "x"}', headers=form).status_code == 403
+    assert client.post("/api/machine/cancel", headers=HUB).status_code == 409   # reached the app
     assert client.get("/api/state", headers={"Host": "evil.example"}).status_code == 400
-    foreign = {"Origin": "http://evil.example", **AUTH}
+    foreign = {"Origin": "http://evil.example", **HUB}
     assert client.post("/api/machine/cancel", headers=foreign).status_code == 403
     assert client.get("/api/state", headers={"Origin": "null"}).status_code == 403
-    own = {"Origin": "http://testserver", **AUTH}
+    own = {"Origin": "http://testserver", **HUB}
     assert client.post("/api/machine/cancel", headers=own).status_code == 409   # reached the app
 
 
 def test_recipe_and_load_flow_over_http(client):
     bad = {**RECIPE, "dose_g": 99}
-    assert client.put("/api/recipes/bad", json=bad, headers=AUTH).status_code == 422
-    assert client.put("/api/recipes/..%2Fx", json=RECIPE, headers=AUTH).status_code in (400, 404, 405)
-    assert client.put("/api/recipes/Bad_Slug", json=RECIPE, headers=AUTH).status_code == 400
-    assert client.put("/api/recipes/test", json=RECIPE, headers=AUTH).status_code == 200
+    assert client.put("/api/recipes/bad", json=bad, headers=HUB).status_code == 422
+    assert client.put("/api/recipes/..%2Fx", json=RECIPE, headers=HUB).status_code in (400, 404, 405)
+    assert client.put("/api/recipes/Bad_Slug", json=RECIPE, headers=HUB).status_code == 400
+    assert client.put("/api/recipes/test", json=RECIPE, headers=HUB).status_code == 200
     assert client.get("/api/recipes").json() == [{"slug": "test", "name": "Test"}]
 
-    assert client.post("/api/machine/load", json={"slug": "nope"}, headers=AUTH).status_code == 404
-    loaded = client.post("/api/machine/load", json={"slug": "test"}, headers=AUTH)
+    assert client.post("/api/machine/load", json={"slug": "nope"}, headers=HUB).status_code == 404
+    loaded = client.post("/api/machine/load", json={"slug": "test"}, headers=HUB)
     assert loaded.status_code == 200 and loaded.json()["state"] == "armed"
     assert "ticket" in loaded.json() and "ticket" not in client.get("/api/state").json()
-    assert client.post("/api/machine/load", json={"slug": "test"}, headers=AUTH).status_code == 409
-    assert client.post("/api/machine/cancel", headers=AUTH).json()["state"] == "idle"
-    assert client.delete("/api/recipes/test", headers=AUTH).json() == {"deleted": True}
+    assert client.post("/api/machine/load", json={"slug": "test"}, headers=HUB).status_code == 409
+    assert client.post("/api/machine/cancel", headers=HUB).json()["state"] == "idle"
+    assert client.delete("/api/recipes/test", headers=HUB).json() == {"deleted": True}
 
 
 # ---- one recipe shape (safety invariant 4) -------------------------------- #
@@ -318,13 +311,13 @@ def test_old_shape_file_is_refused_on_load(client, tmp_path):
         "name: Old\ncup_type: 2\ndose_g: 5.0\nratio: '1:5'\ngrinder_size: 40\n"
         "grinder_size_enabled: 2\nrpm: 60\npour_count: 1\npours:\n- {volume_ml: 25, "
         "temperature_c: 20, pause_s: 0, pattern: 1, flow_rate: 3.0}\n")
-    refused = client.post("/api/machine/load", json={"slug": "old"}, headers=AUTH)
+    refused = client.post("/api/machine/load", json={"slug": "old"}, headers=HUB)
     assert refused.status_code == 422 and "grinder_size" in refused.json()["fields"]
     assert client.get("/api/state").json()["state"] == "idle"
 
 
 # ---- mcp ------------------------------------------------------------------ #
-def rpc(client, method, params=None, headers=AUTH):
+def rpc(client, method, params=None, headers=HUB):
     body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
     return client.post("/mcp", json=body, headers={**MCP_HEADERS, **headers})
 
@@ -340,12 +333,14 @@ def call(client, tool, **arguments):
     return json.loads(result["content"][0]["text"])
 
 
-def test_mcp_needs_the_token_on_every_method(client):
-    assert rpc(client, "tools/list", headers={}).status_code == 401
-    assert client.get("/mcp", headers=MCP_HEADERS).status_code == 401
-    assert client.delete("/mcp").status_code == 401
-    assert rpc(client, "tools/list", headers={**AUTH, "Host": "evil.example"}).status_code == 400
-    assert rpc(client, "tools/list", headers={**AUTH, "Origin": "http://evil.example"}).status_code == 403
+def test_mcp_needs_the_hub_header_on_every_method(client):
+    assert rpc(client, "tools/list", headers={}).status_code == 403
+    assert client.get("/mcp", headers=MCP_HEADERS).status_code == 403
+    # What an <img> on another page sends: no Origin, no custom header.
+    assert client.get("/mcp", headers={"Accept": "image/*"}).status_code == 403
+    assert client.delete("/mcp").status_code == 403
+    assert rpc(client, "tools/list", headers={**HUB, "Host": "evil.example"}).status_code == 400
+    assert rpc(client, "tools/list", headers={**HUB, "Origin": "http://evil.example"}).status_code == 403
     assert rpc(client, "tools/list").status_code == 200
 
 
@@ -430,18 +425,6 @@ def test_as_sent_stays_close_for_every_dose_and_ratio():
     print("largest shift in total water:", worst, "ml")
 
 
-def test_token_helper_fails_closed_on_whitespace(tmp_path):
-    import subprocess
-
-    token = tmp_path / "t"
-    for content, ok in (("   \n", False), ("", False), ("abc\n", True)):
-        token.write_text(content)
-        run = subprocess.run(["tools/mcp-auth-headers.sh"], capture_output=True, text=True,
-                             env={"XBLOOM_HUB_TOKEN_FILE": str(token), "PATH": "/usr/bin:/bin"})
-        assert (run.returncode == 0) == ok, (content, run.stderr)
-    assert run.stdout.strip() == '{"Authorization": "Bearer abc"}'
-
-
 # ---- from the pre-push review -------------------------------------------- #
 def test_ratio_is_never_filled_in_or_snapped():
     for ratio in (None, "", "1:16.2", "1:nan", "1:inf", "1:1e1", "16", 16, "1:4.5", "1:25.5"):
@@ -477,8 +460,8 @@ def test_a_loaded_recipe_cannot_be_changed_or_deleted(client):
     assert call(client, "load_recipe", slug="one")["state"] == "armed"
     assert call(client, "save_recipe", slug="one", recipe={**RECIPE, "name": "x"})["error"] == "recipe_is_loaded"
     assert call(client, "delete_recipe", slug="one")["error"] == "recipe_is_loaded"
-    assert client.put("/api/recipes/one", json=RECIPE, headers=AUTH).status_code == 409
-    assert client.delete("/api/recipes/one", headers=AUTH).status_code == 409
+    assert client.put("/api/recipes/one", json=RECIPE, headers=HUB).status_code == 409
+    assert client.delete("/api/recipes/one", headers=HUB).status_code == 409
     assert call(client, "save_recipe", slug="two", recipe=RECIPE)["ok"]      # other slugs are free
     assert call(client, "cancel_load")["state"] == "idle"
     assert call(client, "delete_recipe", slug="one")["deleted"]
@@ -494,7 +477,7 @@ def test_load_is_not_ok_unless_the_machine_says_armed(tmp_path, monkeypatch):
     monkeypatch.setattr(machine_module.Machine, "_wait_for",
                         lambda self, predicate, timeout: asyncio.sleep(0, result=predicate()))
     machine = Machine(SimRadio(), Silent)
-    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
+    app = create_app(machine, RecipeStore(tmp_path), ["testserver"])
     with TestClient(app, client=("127.0.0.1", 50000)) as c:
         deadline = time.monotonic() + 3
         while machine.state != "idle":
@@ -503,13 +486,13 @@ def test_load_is_not_ok_unless_the_machine_says_armed(tmp_path, monkeypatch):
         assert call(c, "save_recipe", slug="one", recipe=RECIPE)["ok"]
         loaded = call(c, "load_recipe", slug="one")
         assert loaded["ok"] is False and loaded["error"] == "not_ready"
-        assert c.post("/api/machine/load", json={"slug": "one"}, headers=AUTH).status_code == 409
+        assert c.post("/api/machine/load", json={"slug": "one"}, headers=HUB).status_code == 409
         # and the slug is not left locked by a load that never armed
         assert call(c, "save_recipe", slug="one", recipe=RECIPE)["ok"]
 
 
 def test_same_failure_has_the_same_name_on_rest_and_mcp(client):
-    rest = client.post("/api/machine/cancel", headers=AUTH).json()["error"]
+    rest = client.post("/api/machine/cancel", headers=HUB).json()["error"]
     assert rest == call(client, "cancel_load")["error"] == "not_ready"
 
 
@@ -616,12 +599,12 @@ def test_the_hub_answers_only_its_own_host_unless_told(tmp_path):
     from xbloom_hub.sim import SimListener, SimRadio
 
     machine = Machine(SimRadio(), SimListener)
-    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"])
+    app = create_app(machine, RecipeStore(tmp_path), ["testserver"])
     assert TestClient(app, client=("127.0.0.1", 1)).get("/api/state").status_code == 200
     refused = TestClient(app, client=("192.168.123.40", 1)).get("/api/state")
     assert refused.status_code == 403 and refused.json() == {"error": "network_not_allowed"}
     assert "content-security-policy" in refused.headers            # refusals carry the headers too
-    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["testserver"],
+    app = create_app(machine, RecipeStore(tmp_path), ["testserver"],
                      allowed_networks=parse_networks("192.168.123.0/24"))
     assert TestClient(app, client=("::ffff:192.168.123.40", 1)).get("/api/state").status_code == 200
 
@@ -641,7 +624,7 @@ def test_a_forwarded_header_does_not_move_the_client(tmp_path):
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     machine = Machine(SimRadio(), SimListener)
-    app = create_app(machine, RecipeStore(tmp_path), TOKEN, ["127.0.0.1"])
+    app = create_app(machine, RecipeStore(tmp_path), ["127.0.0.1"])
     options = {**server_options({"XBLOOM_PORT": str(port)}), "log_level": "warning"}
     server = uvicorn.Server(uvicorn.Config(app, **options))
     thread = threading.Thread(target=server.run, daemon=True)

@@ -178,7 +178,7 @@ class Machine:
         return "busy"
 
     def snapshot(self) -> dict:
-        """Public state, readable without the token. Never includes the start
+        """Public state, readable by any allowed client. Never includes the start
         ticket or the machine's serial number."""
         brew = self._brew
         return {

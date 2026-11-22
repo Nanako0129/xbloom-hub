@@ -2,7 +2,7 @@
 
 The hub runs in this process, on its own event loop in a thread, so a test can
 make the simulated machine do what a person at the machine would (lift the
-cup, press the knob). Nothing here talks to a real machine or a real token.
+cup, press the knob). Nothing here talks to a real machine.
 
 Run them explicitly; the default suite leaves them out:
 
@@ -34,7 +34,6 @@ from xbloom_hub.machine import Machine
 from xbloom_hub.recipes import RecipeStore
 from xbloom_hub.sim import SimListener, SimRadio
 
-TOKEN = "browser-test-token"
 HERE = Path(__file__).parent
 
 def pytest_collection_modifyitems(config, items):
@@ -116,7 +115,7 @@ class Hub:
 
     def api(self, method: str, path: str, body: dict | None = None) -> httpx.Response:
         return httpx.request(method, self.base + path, json=body, timeout=10,
-                             headers={"Authorization": f"Bearer {TOKEN}"})
+                             headers={"X-Hub-Request": "1"})
 
     def state(self) -> dict:
         return httpx.get(self.base + "/api/state", timeout=5).json()
@@ -162,8 +161,13 @@ def _card(recipe_id, name, official):
             "shareRecipeLink": "https://share-h5.xbloom.com/?id=" + _SIDS[recipe_id].replace("=", "%3D")}
 
 
+# Every call the hub made to (fake) xBloom, in order: what a test can count.
+XBLOOM_CALLS: list[str] = []
+
+
 def fake_xbloom(request):
     from xbloom_hub import community as cm
+    XBLOOM_CALLS.append(str(request.url))
     url, body = str(request.url), json.loads(request.content or b"{}")
     if url == cm.CRITERIA_URL:
         data = {"originList": [{"name": "Kenya", "value": "11"}], "varietalList": [{"name": "SL28", "value": "3"}],
@@ -202,7 +206,7 @@ def hub(tmp_path, monkeypatch):
     brews = BrewStore(tmp_path / "brews")
     machine = Machine(radio, Sim, brews)
     store = RecipeStore(tmp_path / "recipes")
-    application = hub_app.create_app(machine, store, TOKEN, ["127.0.0.1"], radio, brews,
+    application = hub_app.create_app(machine, store, ["127.0.0.1"], radio, brews,
                                      community=Community(transport=httpx2.MockTransport(fake_xbloom)))
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(application, host="127.0.0.1", port=port,
@@ -263,7 +267,8 @@ PROBE = """
 
 @pytest.fixture
 def ui(page, hub):
-    """The dashboard, opened with the token, in English, watched for problems."""
+    """The dashboard, opened as a phone opens it (no credential stored, no pairing),
+    in English, watched for problems."""
     if not (hub_app.WEB_DIR / "index.html").is_file():
         pytest.fail(f"the dashboard is not built: run {hub_app.BUILD_COMMAND}")
     problems: list[str] = []
@@ -279,7 +284,7 @@ def ui(page, hub):
     # English unless a test has chosen otherwise.
     page.add_init_script(
         "try { if (!localStorage.getItem('xbloom-hub-lang')) localStorage.setItem('xbloom-hub-lang', 'en'); } catch (_) {}")
-    page.goto(f"{hub.base}/#t={TOKEN}")
+    page.goto(f"{hub.base}/")
     page.wait_for_selector("#machine .state")
     page.problems = problems
     yield page

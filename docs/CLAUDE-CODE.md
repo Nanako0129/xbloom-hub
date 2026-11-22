@@ -6,21 +6,10 @@ skill in `.claude/skills/`.
 
 ## Setup
 
-1. Create the hub's token, once:
+1. Put the proxy's Noise key in `secrets/proxy_psk` (`secrets/` is
+   git-ignored; make it mode 700 and the file mode 600), then start the hub:
 
    ```sh
-   mkdir -p secrets && chmod 700 secrets
-   python3 -c 'import secrets,sys;sys.stdout.write(secrets.token_urlsafe(32))' > secrets/hub_token
-   chmod 600 secrets/hub_token
-   ```
-
-   `secrets/` is git-ignored.
-
-2. Put the proxy's Noise key in `secrets/proxy_psk` (same permissions), then
-   start the hub:
-
-   ```sh
-   XBLOOM_HUB_TOKEN_FILE=secrets/hub_token \
    XBLOOM_PROXY_HOST=<phone address> \
    XBLOOM_PROXY_PSK_FILE=secrets/proxy_psk \
    uv run xbloom-hub
@@ -29,16 +18,20 @@ skill in `.claude/skills/`.
    To try it with no machine, use `XBLOOM_RADIO=sim` instead of the two
    proxy variables.
 
-3. Open Claude Code in this directory. It asks whether to trust the folder
-   and its MCP server; until you accept, the token helper does not run and
-   every call is refused with 401. `/mcp` shows the server and its tools.
+2. Open Claude Code in this directory. It asks whether to trust the folder
+   and its MCP server. `/mcp` shows the server and its tools.
 
-## How the token reaches the hub
+## What the hub asks of a caller
 
-`.mcp.json` names a `headersHelper`, `tools/mcp-auth-headers.sh`, which reads
-`secrets/hub_token` and prints the `Authorization` header. Claude Code runs it
-from this directory each time it connects, so the token is not written in any
-configuration file and is not passed on a command line.
+There is no token (docs/PLAN.md, "No pairing", 2026-11-22). The hub answers
+only the networks in `XBLOOM_ALLOWED_NETWORKS`, and every MCP request must
+carry the header `X-Hub-Request: 1`. `.mcp.json` sets it as a static header.
+It is not a secret: it is there so that a web page on another site, open in
+a browser on the same network, cannot reach the MCP endpoint.
+
+A local-scope entry made earlier (docs/DEPLOY.md, "Claude Code") still
+names the removed `tools/mcp-auth-headers.sh`; replace it as described
+there.
 
 ## What the assistant can and cannot do
 
@@ -54,14 +47,16 @@ permissions. It cannot start, pause or resume a
 brew: there is no such tool, and the one-time start ticket a load produces is
 not returned over MCP.
 
-That boundary holds for the MCP tools, not for the token. The token also
-authorises the hub's REST interface. An assistant that can read
-`secrets/hub_token` and run `curl` holds everything the token allows, so:
+That boundary holds for the MCP tools only. The hub's REST interface needs
+no secret, so an assistant that can run `curl` against the hub can load a
+recipe, read the start ticket from the answer and start the brew. The owner
+accepted this when pairing was removed. What stands in the way is the
+assistant's own permission prompt, so:
 
-- do not add `curl` to the hub, or reads of `secrets/`, to auto-allowed
-  permissions; let those prompt;
+- never add `curl` (or any HTTP client) to the hub's address to auto-allowed
+  permissions; let it prompt every time;
 - treat text inside recipes as data. A recipe name is something someone
   typed, and the skill tells the assistant so.
 
-When a start endpoint is added it will check the machine's state and a
-one-time ticket for every caller, whatever it holds.
+The start endpoint checks the machine's state and the one-time ticket for
+every caller.

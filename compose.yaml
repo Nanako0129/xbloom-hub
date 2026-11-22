@@ -22,7 +22,6 @@ services:
     # configuration (security P2-1). Compose ignores mode and owner on file
     # secrets; the files on the server are uid 10001, mode 400 (S4-13).
     secrets:
-      - hub_token
       - proxy_psk
     volumes:
       - ./data:/data
@@ -43,7 +42,5 @@ services:
     # 127.0.0.0/8 and 127.0.0.1 in the allowed lists.
 
 secrets:
-  hub_token:
-    file: ./secrets/hub_token
   proxy_psk:
     file: ./secrets/proxy_psk

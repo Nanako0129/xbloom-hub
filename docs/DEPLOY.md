@@ -5,6 +5,14 @@ The hub can run as one container on an always-on Linux machine on your LAN
 Bluetooth proxy day and night, restarts by itself after a reboot, and serves
 the page, REST, the event stream and MCP to the rest of the house.
 
+There is no authentication (docs/PLAN.md, "No pairing", 2026-11-22). The
+list of allowed client networks is the only access control: any device in
+it can load, start and stop a brew. Keep it to networks whose every device
+you trust with the machine, check the client address the hub logs before
+you widen it (see the smoke test), and never put the hub behind a reverse
+proxy, tunnel or port forward that does not authenticate on its own: every
+client would then arrive from the proxy's address and pass the check.
+
 Only one hub may use the proxy at a time. When a hub starts, it drops every
 link the proxy holds, so a second hub cuts the first one off, even in the
 middle of a brew. Once the server runs the hub, stop running it anywhere else.
@@ -19,7 +27,6 @@ example under a directory that holds your other Compose services).
 <dir>/                    a clone of this repository, owned by root
   compose.yaml            tracked
   .env                    yours, from .env.example (git-ignored)
-  secrets/hub_token       uid 10001, mode 400 (git-ignored)
   secrets/proxy_psk       uid 10001, mode 400 (git-ignored)
   data/                   recipes and brew records, uid 10001 (git-ignored)
 ```
@@ -66,22 +73,19 @@ If one of these turns something up, decide that first.
    container. Every name is required: Compose stops if one is missing,
    instead of publishing on every interface.
 
-3. `data/` and `secrets/`, owned by uid 10001. Each secret travels in a pipe,
-   never in a command line or a terminal. The token is read from the token
-   file you already keep for your own calls (the hub's other clients use
-   it); the proxy key comes straight from the keychain and is never written
-   to a file on your own machine. The token:
+3. `data/` and `secrets/`, owned by uid 10001. The one secret, the proxy
+   key, travels in a pipe, never in a command line or a terminal: read it
+   from the keychain with
+   `security find-generic-password -s <service> -a <account> -w <keychain>`
+   into
+   `ssh <user>@<server> 'sudo -n install -m 400 -o 10001 -g 10001 /dev/stdin <dir>/secrets/proxy_psk'`
+   (with `set -o pipefail`), and only when you are about to start the hub
+   for real. It is never written to a file on your own machine. Then check it
+   is not empty:
 
    ```bash
-   set -o pipefail
-   tr -d '[:space:]' < secrets/hub_token \
-     | ssh <user>@<server> 'sudo -n install -m 400 -o 10001 -g 10001 /dev/stdin <dir>/secrets/hub_token'
-   ssh <user>@<server> 'sudo -n test -s <dir>/secrets/hub_token' && echo ok
+   ssh <user>@<server> 'sudo -n test -s <dir>/secrets/proxy_psk' && echo ok
    ```
-
-   The proxy key the same way, read from the keychain with
-   `security find-generic-password -s <service> -a <account> -w <keychain>`
-   into the pipe, and only when you are about to start the hub for real.
    Compose ignores `mode` and owner on file secrets (they are bind mounts),
    so the `install` above is what protects them.
 
@@ -99,7 +103,6 @@ If one of these turns something up, decide that first.
    sudo docker run --rm -d --name xbloom-hub-smoke \
      --read-only --tmpfs /tmp --tmpfs /data:uid=10001 \
      --cap-drop ALL --security-opt no-new-privileges \
-     -v <dir>/secrets/hub_token:/run/secrets/hub_token:ro \
      -e XBLOOM_RADIO=sim -e XBLOOM_PROXY_HOST= \
      -e XBLOOM_ALLOWED_HOSTS=<the same as .env> \
      -e XBLOOM_ALLOWED_NETWORKS=<the same as .env> \
@@ -189,21 +192,23 @@ reaches the server (seen 2026-11-16):
 
 ```bash
 claude mcp add-json --scope local xbloom-hub \
-  '{"type":"http","url":"http://<server>:8377/mcp","headersHelper":"./tools/mcp-auth-headers.sh"}'
+  '{"type":"http","url":"http://<server>:8377/mcp","headers":{"X-Hub-Request":"1"}}'
 ```
 
-## The first browser
-
-A pairing code, not the token: from a machine that holds the token file,
+An entry made before the "No pairing" change names a `headersHelper`
+(`./tools/mcp-auth-headers.sh`) that no longer exists, and sends no
+`X-Hub-Request`: every call would get 403. Replace it:
 
 ```bash
-{ printf 'Authorization: Bearer '; tr -d '[:space:]' < secrets/hub_token; echo; } \
-  | curl -sS -H @- -X POST http://<server>:8377/api/pair/start
+claude mcp remove --scope local xbloom-hub
+claude mcp add-json --scope local xbloom-hub \
+  '{"type":"http","url":"http://<server>:8377/mcp","headers":{"X-Hub-Request":"1"}}'
 ```
 
-returns a code that works once, for two minutes. Open
-`http://<server>:8377/#p=<code>`; from that page, "Add a device" pairs a
-phone by QR code (docs/DASHBOARD.md).
+## Opening the page
+
+Open `http://<server>:8377/` on any device in an allowed network. There is
+nothing to pair (docs/DASHBOARD.md).
 
 ## Host networking
 
@@ -218,20 +223,20 @@ why it is not the default.
 
 ## What crosses the LAN
 
-The page, REST and MCP are plain HTTP. With the hub on a server, every call
-from another computer carries the token across the LAN, where on a single
-machine it stayed on loopback. Rotating it: docs/DASHBOARD.md.
+The page, REST and MCP are plain HTTP. The one secret on the wire is the
+one-time start ticket in the answer to a load: anyone who can see the
+LAN's traffic could use it to start that brew first. Any allowed client
+can load and start a brew anyway, so this adds no reach, only timing.
 
 ## Checking that no secret is in the image or the container
 
-Count, never print. Each secret must count 0, and the known string first
+Count, never print. The proxy key must count 0, and the known string first
 must count more than 0, or a 0 means nothing (newer Docker saves images with
 compressed layers, which `tools/count-in-image.py` opens one by one):
 
 ```bash
 printf 'proxy_headers=False' > /tmp/known
 sudo docker image save xbloom-hub:local | sudo python3 <dir>/tools/count-in-image.py /tmp/known
-sudo docker image save xbloom-hub:local | sudo python3 <dir>/tools/count-in-image.py <dir>/secrets/hub_token
 sudo docker image save xbloom-hub:local | sudo python3 <dir>/tools/count-in-image.py <dir>/secrets/proxy_psk
 sudo docker inspect xbloom-hub-hub-1 | sudo grep -c -F -f <dir>/secrets/proxy_psk
 ```
